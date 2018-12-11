@@ -14,4 +14,8 @@ setup(name='tesi',
       author_email='',
       license='MIT',
       packages=['tesi'],
+      install_requires=[
+          "astropy",
+          "ccdproc",
+                        ],
       zip_safe=False)
