@@ -46,15 +46,15 @@ class DataReduction():
         self._scienceFinal= None
 
 
-#     def saveObjectListToFile(objList, filename):
-#         with open(filename, 'wb') as handle:
-#             pickle.dump(objList, handle, protocol=pickle.HIGHEST_PROTOCOL)
-# 
-# 
-#     def restoreObjectListFromFile(filename):
-#         with open(filename, 'rb') as handle:
-#             objList= pickle.load(handle)
-#             return objList
+    def saveToFile(self, objToSave, filename):
+        with open(filename, 'wb') as handle:
+            pickle.dump(objToSave, handle, protocol=pickle.HIGHEST_PROTOCOL)
+ 
+ 
+    def restoreFromFile(self, filename):
+        with open(filename, 'rb') as handle:
+            obj= pickle.load(handle)
+            return obj
 
 
     def setIntegrationTime(self, integrationTime):
@@ -221,7 +221,7 @@ class DataReduction():
         del self._scienceIma[9::]
     
         scie= np.median(np.array([a.data for a in self._scienceIma]), axis=0)
-        self._science_sky= scie-self._getSkyImage()
+        self._science_sky= scie-self._sky
         self._scienceFinal= self._science_sky/self._flat
 
 
