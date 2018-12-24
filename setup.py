@@ -17,5 +17,6 @@ setup(name='tesi',
       install_requires=[
           "astropy",
           "ccdproc",
-                        ],
+          "photutils",
+        ],
       zip_safe=False)
