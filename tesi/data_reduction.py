@@ -9,7 +9,6 @@ from ccdproc.image_collection import ImageFileCollection
 import numpy as np
 import ccdproc
 import pickle
-from ccdproc.core import median_filter
 
 
 class DataReduction():

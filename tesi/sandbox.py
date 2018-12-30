@@ -35,6 +35,7 @@ from ccdproc.image_collection import ImageFileCollection
 from tesi.image_fitter import ImageFitter
 from tesi.image_creator import ImageCreator
 from astropy import units as u
+from hmac import new
 
 
 def getObjectNameFromFitsFile(filename):
@@ -593,3 +594,94 @@ def main181228():
     dr.setIntegrationTime(3.0)
     dr.setObjectName('NGC2419')
     return dr
+
+
+def main181230():
+    from tesi.detector import LuciDetector
+    from ccdproc import Combiner
+
+    dr= main181228()
+    ima= dr.getScienceImage()
+    darks= dr._darkIma
+    flats= dr._flatIma
+    skys= dr._skyIma
+    sciences= dr._scienceIma
+
+    # deviation, serve a quacosa?
+    def _computeDeviation(ccd0, detector):
+        cnew= ccdproc.create_deviation(
+            ccd0,
+            gain=detector.gainAdu2Electrons*u.electron/u.adu,
+            readnoise=detector.ronInElectrons*u.electron)
+        return cnew
+    sciences0_new= _computeDeviation(sciences[0], LuciDetector())
+
+    def _makeMasterDark(darks):
+        darkCombiner= Combiner(darks)
+        darkCombiner.sigma_clipping(low_thresh=3, high_thresh=3,
+                                    func=np.ma.median, dev_func=np.ma.std)
+        masterDark= darkCombiner.median_combine()
+        masterDark.header['exptime']= darkCombiner.ccd_list[
+            0].header['exptime']
+        masterDark.header['DIT']= darkCombiner.ccd_list[0].header['DIT']
+        # TODO: something else to be added to the masterDark.header?
+        return masterDark
+
+    def _adu2Electron(ccd):
+        return ccdproc.gain_correct(ccd,
+                                    LuciDetector().gainAdu2Electrons,
+                                    u.electron/u.adu)
+
+    def _makeMasterFlat(flats, masterDark):
+        flatsDarkSubtracted=[]
+        for flat in flats:
+            flat= ccdproc.subtract_dark(
+                flat, masterDark, exposure_time='DIT',
+                exposure_unit=u.second,
+                add_keyword={'calib': 'subtracted dark'})
+            flatsDarkSubtracted.append(flat)
+
+        flatCombiner= Combiner(flatsDarkSubtracted)
+        flatCombiner.sigma_clipping(low_thresh=3, high_thresh=3,
+                                    func=np.ma.median, dev_func=np.ma.std)
+
+        def scalingFunc(arr):
+            return 1./np.ma.average(arr)
+
+        flatCombiner.scaling= scalingFunc
+        masterFlat= flatCombiner.median_combine()
+        masterFlat.header= flats[0].meta
+        return masterFlat
+
+    masterDark= _makeMasterDark(darks)
+    masterFlat= _makeMasterFlat(flats, masterDark)
+    masterFlatElectron= _adu2Electron(masterFlat)
+
+    def _calibrateAndCombine(ccds, masterDark, masterFlatElectron):
+        objCalibrated=[]
+        for ccd in ccds:
+            ccdDark= ccdproc.subtract_dark(ccd, masterDark,
+                                           exposure_time='DIT',
+                                           exposure_unit=u.second,
+                                           add_keyword={'calib': 'subtracted dark'})
+            ccdGain= _adu2Electron(ccdDark)
+            ccdFlat= ccdproc.flat_correct(ccdGain, masterFlatElectron)
+            objCalibrated.append(ccdFlat)
+
+        objCombiner= Combiner(objCalibrated)
+        medianObj= objCombiner.median_combine()
+        return medianObj
+
+    sky= _calibrateAndCombine(skys, masterDark, masterFlatElectron)
+    sci= _calibrateAndCombine(sciences, masterDark, masterFlatElectron)
+    scisky=sci.subtract(sky)
+
+    def iterativeSigmaClipping(combiner):
+        old= 0
+        new= combiner.data_arr.mask.sum()
+        print("new %d" % new)
+        while(new>old):
+            combiner.sigma_clipping(func=np.ma.median)
+            old= new
+            new= combiner.data_arr.mask.sum()
+            print("new %d" % new)
