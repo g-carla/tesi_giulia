@@ -35,7 +35,6 @@ from ccdproc.image_collection import ImageFileCollection
 from tesi.image_fitter import ImageFitter
 from tesi.image_creator import ImageCreator
 from astropy import units as u
-from hmac import new
 
 
 def getObjectNameFromFitsFile(filename):
@@ -269,10 +268,24 @@ def show(ima, **kwargs):
     plt.colorbar()
 
 
-def showNorm(ima, **kwargs):
+def showNorm(imaOrCcd, **kwargs):
     from astropy.visualization import imshow_norm, SqrtStretch
     from astropy.visualization.mpl_normalize import PercentileInterval
+    from astropy.nddata import CCDData
+
     plt.clf()
+    fig= plt.gcf()
+    if isinstance(imaOrCcd, CCDData):
+        arr= imaOrCcd.data
+        wcs= imaOrCcd.wcs
+        if wcs is None:
+            ax= plt.subplot()
+        else:
+            ax= plt.subplot(projection=wcs)
+            ax.coords.grid(True, color='white', ls='solid')
+    else:
+        arr= imaOrCcd
+        ax= plt.subplot()
     if 'interval' not in kwargs:
         kwargs['interval']= PercentileInterval(99.7)
     if 'stretch' not in kwargs:
@@ -280,10 +293,9 @@ def showNorm(ima, **kwargs):
     if 'origin' not in kwargs:
         kwargs['origin']= 'lower'
 
-    imshow_norm(ima, **kwargs)
-#    imshow_norm(ima, origin='lower', interval=PercentileInterval(99.7),
-#                stretch=SqrtStretch(), **kwargs)
-    plt.colorbar()
+    im, _= imshow_norm(arr, ax=ax, **kwargs)
+
+    fig.colorbar(im)
 
 
 def _showNormOld(ima, **kwargs):
@@ -628,9 +640,17 @@ def main181230():
         return masterDark
 
     def _adu2Electron(ccd):
+        # TODO: LUCI has 'gain' and 'rdnoise' keywords in the header. Use them
+        # instead of relying on a LuciDetector object? (RON could change
+        # in case of updated electronics?) Anyhow we decided to trust the
+        # FITS header
         return ccdproc.gain_correct(ccd,
                                     LuciDetector().gainAdu2Electrons,
                                     u.electron/u.adu)
+
+    def _trim(ccd):
+        trimFitsSection= "DATASEC"
+        return ccdproc.trim_image(ccd, ccd.header[trimFitsSection])
 
     def _makeMasterFlat(flats, masterDark):
         flatsDarkSubtracted=[]
@@ -638,7 +658,7 @@ def main181230():
             flat= ccdproc.subtract_dark(
                 flat, masterDark, exposure_time='DIT',
                 exposure_unit=u.second,
-                add_keyword={'calib': 'subtracted dark'})
+                add_keyword={'HIERARCH GIULIA DARK SUB': True})
             flatsDarkSubtracted.append(flat)
 
         flatCombiner= Combiner(flatsDarkSubtracted)
@@ -650,7 +670,7 @@ def main181230():
 
         flatCombiner.scaling= scalingFunc
         masterFlat= flatCombiner.median_combine()
-        masterFlat.header= flats[0].meta
+        masterFlat.header= flatsDarkSubtracted[0].meta
         return masterFlat
 
     masterDark= _makeMasterDark(darks)
@@ -685,3 +705,52 @@ def main181230():
             old= new
             new= combiner.data_arr.mask.sum()
             print("new %d" % new)
+
+
+def wcsTest(dr):
+    """
+    HIERARCH LBTO LUCI WCS CTYPE1 = 'RA---TAN' / the coordinate type and projection 
+    HIERARCH LBTO LUCI WCS CTYPE2 = 'DEC--TAN' / the coordinate type and projection 
+    HIERARCH LBTO LUCI WCS CRPIX1 = 1024. / the pixel coordinates of the reference p
+    HIERARCH LBTO LUCI WCS CRPIX2 = 1024. / the pixel coordinates of the reference p
+    HIERARCH LBTO LUCI WCS CRVAL1 = 205.7395 / the WCS coordinates on the reference 
+    HIERARCH LBTO LUCI WCS CRVAL2 = 32. / the WCS coordinates on the reference point
+    HIERARCH LBTO LUCI WCS CD1_1 = -3.3E-05 / the rotation matrix for scaling and ro
+    HIERARCH LBTO LUCI WCS CD1_2 = 0. / the rotation matrix for scaling and rotation
+    HIERARCH LBTO LUCI WCS CD2_1 = 0. / the rotation matrix for scaling and rotation
+    HIERARCH LBTO LUCI WCS CD2_2 = 3.3E-05 / the rotation matrix for scaling and rot
+
+    TELRA   = '07 38 9.002'        / Telescope Right Accention
+    TELDEC  = '+38 53 11.504'      / Telescope Declination
+    OBJRA   = '07 38 9.002'        / Target Right Ascension from preset
+    OBJDEC  = '+38 53 11.504'      / Target Declination from preset
+    OBJRADEC= 'FK5     '           / Target Coordinate System
+    OBJEQUIN= 'J2000   '           / Target Coordinate System Equinox
+    OBJPMRA =                   0. / Target RA proper motion [mas per yr]
+    OBJPMDEC=                   0. / Target DEC proper motion [mas per yr]
+    OBJEPOCH=                2000. / Target Epoch
+    GUIRA   = '07 38 19.187'       / Guide Star RA
+    GUIDEC  = '+38 55 15.648'      / Guide Star DEC
+    AONAME  = 'N1288-0180843'      / AO Star Name
+    AORA    = '07 38 15.702'       / AO Star RA
+    AODEC   = '+38 53 33.108'      / AO Star DEC
+
+
+    """
+    from astropy import wcs
+    from astropy.coordinates import SkyCoord, FK5
+    sciences= dr._scienceIma
+    ccd0=sciences[0]
+    hdr0= ccd0.header
+    ccd0wcs= wcs.WCS(hdr0)
+    pxs= np.array([[0, 0], [1024, 1024], [512, 1024]], np.float)
+    ccd0wcs.all_pix2world(pxs, 1)
+
+    px= np.arange(ccd0.shape[1])
+    py= np.arange(ccd0.shape[0])
+    wx, wy= ccd0wcs.all_pix2world(px, py, 1)
+
+    if hdr0['OBJRADEC'] == 'FK5':
+        frameType= FK5()
+    c=SkyCoord(ccd0.header['OBJRA'], ccd0.header['OBJDEC'],
+               frame=frameType, unit=(u.hourangle, u.deg))
