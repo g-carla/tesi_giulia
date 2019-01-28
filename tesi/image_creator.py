@@ -6,13 +6,12 @@ Created on 20 nov 2018
 import numpy as np
 from astropy.table.table import Table
 from photutils.datasets.make import make_gaussian_sources_image,\
-    apply_poisson_noise
+    apply_poisson_noise, make_model_sources_image
 from photutils.utils.check_random_state import check_random_state
 from astropy.modeling.functional_models import Gaussian2D
 from tesi.detector import IdealDetector
-
-
-
+from numpy import float64
+from photutils.psf.models import IntegratedGaussianPRF
 
 
 class ImageCreator(object):
@@ -22,7 +21,6 @@ class ImageCreator(object):
     SKY_NO='SKY_NO'
     SKY_IDEAL='SKY_IDEAL'
     SKY_REALISTIC='SKY_REALISTIC'
-
 
     def __init__(self,
                  shape,
@@ -40,15 +38,12 @@ class ImageCreator(object):
         self.setTransmissionMap(self.TRANSMISSION_MAP_IDEAL)
         self.setSkyBackground(self.SKY_NO)
 
-
     @property
     def shape(self):
         return self._shape
 
-
     def setDetector(self, detectorSpecifications):
         self._detectorSpecifications= detectorSpecifications
-
 
     def detector(self):
         """ Return the detector specifications
@@ -58,7 +53,6 @@ class ImageCreator(object):
             characteristics used to create the image
         """
         return self._detectorSpecifications
-
 
     def setExposureTime(self, exposureTimeInSeconds):
         """Set the exposure time of the image.
@@ -70,14 +64,11 @@ class ImageCreator(object):
         self._exposureTimeInSeconds= exposureTimeInSeconds
         self.detector().setExposureTime(exposureTimeInSeconds)
 
-
     def exposureTimeInSec(self):
         return self._exposureTimeInSeconds
 
-
     def usePoissonNoise(self, trueOrFalse):
         self._usePoissonNoise= trueOrFalse
-
 
     def createGaussianImage(self,
                             posX,
@@ -94,6 +85,43 @@ class ImageCreator(object):
         self._table= table
         return self.createImage()
 
+    def createIntegratedGaussianPRFImage(self,
+                                         sigma,
+                                         flux,
+                                         x0,
+                                         y0):
+        table = Table()
+        table['sigma']= [sigma]
+        table['flux']= [flux]
+        table['x_0']= [x0]
+        table['y_0']= [y0]
+        self._table= table
+        ima = make_model_sources_image(
+            self._shape, IntegratedGaussianPRF(), table)
+        return ima
+
+    def createMultipleIntegratedGaussianPRFImage(
+            self,
+            stddevRange=[2., 3],
+            fluxInPhotons=[1000., 10000],
+            nStars=100):
+        xMean= np.random.uniform(1, self._shape[1]-1, nStars)
+        yMean= np.random.uniform(1, self._shape[0]-1, nStars)
+        sx= np.random.uniform(
+            stddevRange[0], stddevRange[1], nStars)
+        flux= np.random.uniform(
+            fluxInPhotons[0],
+            fluxInPhotons[1],
+            nStars)
+
+        self._table= Table()
+        self._table['x_0']= xMean
+        self._table['y_0']= yMean
+        self._table['sigma']= sx
+        self._table['flux']= flux
+        ima = make_model_sources_image(
+            self._shape, IntegratedGaussianPRF(), self._table)
+        return ima
 
     def createMultipleGaussian(self,
                                stddevXRange=[2., 3],
@@ -115,7 +143,7 @@ class ImageCreator(object):
         theta= np.arctan2(yMean-0.5*self._shape[0],
                           xMean-0.5*self._shape[1]) - np.pi/2
 
-        amp= np.random.uniform(
+        flux= np.random.uniform(
             fluxInPhotons[0],
             fluxInPhotons[1],
             nStars)
@@ -126,10 +154,9 @@ class ImageCreator(object):
         self._table['x_stddev']= sx
         self._table['y_stddev']= sy
         self._table['theta']= theta
-        self._table['amplitude']= amp
+        self._table['flux']= flux
         ima= self.createImage()
         return ima
-
 
     def addGaussianSource(self,
                           posX,
@@ -139,17 +166,12 @@ class ImageCreator(object):
                           theta,
                           fluxInPhotons):
         self._table.add_row([posX, posY, stdX, stdY,
-                            theta, fluxInPhotons])
-
-
-
+                             theta, fluxInPhotons])
 
     def resetTable(self):
         self._table= Table(
             names=('x_mean', 'y_mean', 'x_stddev', 'y_stddev',
                    'theta', 'flux'))
-
-
 
     def createImage(self):
         """createImage
@@ -168,14 +190,12 @@ class ImageCreator(object):
             image= self._addShotNoise(image)
         return self.detector().photons2Adu(image)
 
-
     def _createSourcesImage(self):
         image= np.zeros(self._shape)
         if self._table is not None:
             image += make_gaussian_sources_image(
                 self._shape, self._table)
         return image + self._skyImage*self.exposureTimeInSec()
-
 
     def _realisticTransmissionMap(self):
         ima= np.ones(self._shape)
@@ -191,7 +211,6 @@ class ImageCreator(object):
         ima*= vign_im
         return ima
 
-
     def _realisticSky(self):
 
         ima= self._idealSky()
@@ -203,11 +222,9 @@ class ImageCreator(object):
         ima += f(x, y, ima.mean()*0.1)
         return ima
 
-
     def _idealSky(self):
         sky= np.ones(self._shape)* self._skyPhotonsPerPxPerSecond
         return sky
-
 
     def setTransmissionMap(self, nameOrMap):
         """setTransmissionMap
@@ -238,8 +255,6 @@ class ImageCreator(object):
             self._transmissionMap= transmissionMap
         else:
             self._transmissionMap= nameOrMap
-
-
 
     def setSkyBackground(self, nameOrMap):
         """setSkyBackground
@@ -275,12 +290,9 @@ class ImageCreator(object):
         else:
             self._skyImage= nameOrMap
 
-
-
     def _addSensitivityAndVignetting(self, image):
         return image*self._transmissionMap
 
-
     def _addShotNoise(self, photonNoNoiseImage):
-        return apply_poisson_noise(
-            photonNoNoiseImage, self._seed)
+        return (apply_poisson_noise(
+            photonNoNoiseImage, self._seed)).astype(float64)

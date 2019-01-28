@@ -35,6 +35,7 @@ class DataReduction():
 
     def _createImageCollection(self):
         self._imagesCollection= ImageFileCollection(self.data_dir, self.keys)
+        return self._imagesCollection
 
     def _reset(self):
         self._dark= None
@@ -113,7 +114,7 @@ class DataReduction():
     def _computeDarkImage(self, createMask=True):
         self._darkFileList=[]
         self._darkIma=[]
-        for dark, fname in self._imagesCollection.hdus(
+        for dark, fname in self._createImageCollection().hdus(
                 FRAMETYP=self.FRAMETYPE_DARK,
                 DIT=self._integrationTime,
                 return_fname=True):
@@ -138,7 +139,7 @@ class DataReduction():
     def _computeFlatFieldImage(self, createMask=True):
         self._flatFileList=[]
         self._flatIma=[]
-        for flat, fname in self._imagesCollection.hdus(
+        for flat, fname in self._createImageCollection().hdus(
                 FRAMETYP=self.FRAMETYPE_FLAT,
                 FILTER=self._filterType,
                 DIT=self._integrationTime,
@@ -174,7 +175,7 @@ class DataReduction():
     def _computeSkyImage(self):
         self._skyFileList=[]
         self._skyIma=[]
-        for sky, fname in self._imagesCollection.hdus(
+        for sky, fname in self._createImageCollection().hdus(
                 FRAMETYP=self.FRAMETYPE_SKY,
                 FILTER=self._filterType,
                 DIT=self._integrationTime,
@@ -203,7 +204,7 @@ class DataReduction():
     def _computeScienceImage(self):
         self._scienceFileList=[]
         self._scienceIma=[]
-        for science, fname in self._imagesCollection.hdus(
+        for science, fname in self._createImageCollection().hdus(
                 FRAMETYP=self.FRAMETYPE_SCIENCE,
                 FILTER=self._filterType,
                 DIT=self._integrationTime,

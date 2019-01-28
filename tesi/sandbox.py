@@ -11,6 +11,13 @@ Created on 27 set 2018
 #from photutils import find_peaks
 #from astropy.visualization import simple_norm
 
+
+# import pyds9
+# print(pyds9.ds9_targets())
+# d = pyds9.DS9()
+# d.set(" file /home/gcarla/reduction/luci1.20151218.0531.fits")
+
+
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -27,7 +34,7 @@ from photutils.datasets.make import make_gaussian_sources_image,\
     make_noise_image, apply_poisson_noise
 from photutils import Background2D, MedianBackground
 from astropy.stats import SigmaClip
-from photutils.detection.findstars import IRAFStarFinder
+from photutils.detection.findstars import IRAFStarFinder, DAOStarFinder
 from astropy.modeling import models, fitting
 from astropy.modeling.fitting import LevMarLSQFitter
 from astropy.stats import gaussian_fwhm_to_sigma
@@ -35,6 +42,16 @@ from ccdproc.image_collection import ImageFileCollection
 from tesi.image_fitter import ImageFitter
 from tesi.image_creator import ImageCreator
 from astropy import units as u
+from photutils.background.core import MADStdBackgroundRMS, MMMBackground
+from astropy.stats.funcs import gaussian_sigma_to_fwhm
+from photutils.psf.groupstars import DAOGroup
+from photutils.psf.models import IntegratedGaussianPRF
+from photutils.psf.photometry import BasicPSFPhotometry, DAOPhotPSFPhotometry,\
+    IterativelySubtractedPSFPhotometry
+from photutils.utils.check_random_state import check_random_state
+from numpy import float64
+from tesi.detector import GenericDetector
+from tesi import image_creator, image_fitter, data_reduction
 
 
 def getObjectNameFromFitsFile(filename):
@@ -611,13 +628,23 @@ def main181228():
 def main181230():
     from tesi.detector import LuciDetector
     from ccdproc import Combiner
+#
+#     dr= main181228()
+#     darks= dr._darkIma
+#     flats= dr._flatIma
+#     skys= dr._skyIma
+#     sciences= dr._scienceIma
 
-    dr= main181228()
-    ima= dr.getScienceImage()
-    darks= dr._darkIma
-    flats= dr._flatIma
-    skys= dr._skyIma
-    sciences= dr._scienceIma
+    drFileName = '/home/gcarla/tera1/201610/data/20161019'
+    dr = data_reduction.DataReduction(drFileName)
+    darks= dr.restoreFromFile(
+        '/home/gcarla/20161019_dataToRestore/darkImagesList.pkl')
+    flats= dr.restoreFromFile(
+        '/home/gcarla/20161019_dataToRestore/flatJ_ImagesList.pkl')
+    skys= dr.restoreFromFile(
+        '/home/gcarla/20161019_dataToRestore/skyJ_ImagesList.pkl')
+    sciences= dr.restoreFromFile(
+        '/home/gcarla/20161019_dataToRestore/scienceJ_ImagesList.pkl')
 
     # deviation, serve a quacosa?
     def _computeDeviation(ccd0, detector):
@@ -626,7 +653,7 @@ def main181230():
             gain=detector.gainAdu2Electrons*u.electron/u.adu,
             readnoise=detector.ronInElectrons*u.electron)
         return cnew
-    sciences0_new= _computeDeviation(sciences[0], LuciDetector())
+#    sciences0_new= _computeDeviation(sciences[0], LuciDetector())
 
     def _makeMasterDark(darks):
         darkCombiner= Combiner(darks)
@@ -706,6 +733,8 @@ def main181230():
             new= combiner.data_arr.mask.sum()
             print("new %d" % new)
 
+    return scisky
+
 
 def wcsTest(dr):
     """
@@ -754,3 +783,127 @@ def wcsTest(dr):
         frameType= FK5()
     c=SkyCoord(ccd0.header['OBJRA'], ccd0.header['OBJDEC'],
                frame=frameType, unit=(u.hourangle, u.deg))
+
+    # AO guide star. Find it in image
+    aoStarCoordW=SkyCoord(ccd0.header['AORA'], ccd0.header['AODEC'],
+                          frame=frameType, unit=(u.hourangle, u.deg))
+    aoStarCoordPx= ccd0wcs.world_to_pixel(aoStarCoordW)
+
+
+def main190121(image):
+
+    #     genDet= GenericDetector((32, 32))
+    #     genDet.ronInElectrons=2.0
+    #     ima_cre=image_creator.ImageCreator((32, 32))
+    #     ima_cre.setDetector(genDet)
+    #
+    #     image= ima_cre.createGaussianImage(16, 16, 3.0, 3.0, 80000) + \
+    #         ima_cre.createGaussianImage(20, 16.5, 3.0, 3.0, 8000) + \
+    #         ima_cre.createGaussianImage(5,  20,  3.0, 3.0, 8000) + \
+    #         ima_cre.createGaussianImage(14, 8.5, 3.0, 3.0, 8000)
+
+    n = gaussian_sigma_to_fwhm
+    guessedSigma=2.0
+    highThresholdToGetBrightStarOnly= 100
+    psf_fitter = image_fitter.PSFphotometry(
+        highThresholdToGetBrightStarOnly,
+        guessedSigma*n, 1, 0.2, 1.0, -1.0, 1.0, (27, 27))
+
+    psf_fitter._psf_model.sigma.fixed=False
+    psf_fitter.setImage(image)
+    tab= psf_fitter.basicPSFphotometry()
+    bestSigma= float(np.median(tab['sigma_fit']))
+
+    psf_fitter = image_fitter.PSFphotometry(
+        None,
+        bestSigma*n, 1, 0.2, 1.0, -1.0, 1.0, (27, 27))
+
+    # psf_fitter._psf_model.sigma.fixed=False
+    psf_fitter.setImage(image)
+    tabAll= psf_fitter.basicPSFphotometry()
+    res= psf_fitter.basic_photom.get_residual_image()
+    return tabAll, res  # , image
+
+
+class main190125():
+
+    def __init__(self,
+                 image,
+                 thresholdForBrightStarsOnly,
+                 guessedSigma,
+                 minSeparationForUncrowdedStars):
+
+        self._image = image
+        self._initThreshold = thresholdForBrightStarsOnly
+        self._initSigma = guessedSigma
+        self._initMinSeparation = minSeparationForUncrowdedStars
+        self._n = gaussian_sigma_to_fwhm
+
+    def _computeBestSigma(self):
+
+        psf_fitter = image_fitter.PSFphotometry(
+            self._initThreshold,
+            self._initSigma*self._n, self._initMinSeparation,
+            0.2, 1.0, -1.0, 1.0, (45, 45), 50)
+
+        psf_fitter._psf_model.sigma.fixed=False
+        psf_fitter.setImage(self._image)
+        self._initTab= psf_fitter.basicPSFphotometry()
+        self._bestSigma= float(np.median(self._initTab['sigma_fit']))
+        return self._bestSigma
+
+    def doPhotometry(self):
+
+        psf_fitter = image_fitter.PSFphotometry(
+            None,
+            self._computeBestSigma()*self._n,
+            1, 0.2, 1.0, -1.0, 1.0, (45, 45), 50)
+
+        # psf_fitter._psf_model.sigma.fixed=False
+        psf_fitter.setImage(self._image)
+        tabAll= psf_fitter.basicPSFphotometry()
+        res= psf_fitter.basic_photom.get_residual_image()
+        return tabAll, res
+
+
+class main190128():
+
+    def __init__(self,
+                 image,
+                 thresholdForBrightStarsOnly,
+                 guessedAlpha,
+                 guessedGamma,
+                 minSeparationForUncrowdedStars):
+
+        self._image = image
+        self._initThreshold = thresholdForBrightStarsOnly
+        self._initAlpha = guessedAlpha
+        self._initGamma = guessedGamma
+        self._initMinSeparation = minSeparationForUncrowdedStars
+        self._n = gaussian_sigma_to_fwhm
+
+    def _computeBestAlphaAndGamma(self):
+
+        psf_fitter = image_fitter.PSFphotometry(
+            self._initThreshold,
+            self._initSigma*self._n, self._initMinSeparation,
+            0.2, 1.0, -1.0, 1.0, (45, 45), 50)
+
+        psf_fitter._psf_model.sigma.fixed=False
+        psf_fitter.setImage(self._image)
+        self._initTab= psf_fitter.basicPSFphotometry()
+        self._bestSigma= float(np.median(self._initTab['sigma_fit']))
+        return self._bestSigma
+
+    def doPhotometry(self):
+
+        psf_fitter = image_fitter.PSFphotometry(
+            None,
+            self._computeBestSigma()*self._n,
+            1, 0.2, 1.0, -1.0, 1.0, (45, 45), 50)
+
+        # psf_fitter._psf_model.sigma.fixed=False
+        psf_fitter.setImage(self._image)
+        tabAll= psf_fitter.basicPSFphotometry()
+        res= psf_fitter.basic_photom.get_residual_image()
+        return tabAll, res
