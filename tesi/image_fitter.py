@@ -83,19 +83,6 @@ class ImageFitter():
         if len(self.init_guessTable) == 0:
             raise Exception("No star found - (add info please)")
 
-        # Fai un ciclo: fit_model - subtract model image from real image - fit
-        # model on residuals - eventually add the new detections to stars list
-        # - fit all (old and new) the detected stars
-#         fit_model = models.Gaussian2D(x_mean=self.init_guessTable['xcentroid'],
-#                                       y_mean=self.init_guessTable['ycentroid'],
-#                                       amplitude=self.init_guessTable['peak'],
-#                                       x_stddev=self.init_guessTable['fwhm']*n,
-#                                       y_stddev=self.init_guessTable['fwhm']*n
-#                                       #,theta=init_guessTable['pa']
-#                                       )
-#         fitter = fitting.LevMarLSQFitter()
-#         self._fit = fitter(fit_model, self._x, self._y, image)
-
     def fitSingleStarWithCentroid(self, ima):
         sy, sx= ima.shape
         y, x= np.mgrid[0:sy, 0:sx]
