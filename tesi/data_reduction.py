@@ -15,7 +15,7 @@ class DataReduction():
 
     FRAMETYPE_SCIENCE= 'SCIENCE'
     FRAMETYPE_SKY= 'SKY'
-    FRAMETYPE_FLAT= 'FLAT'
+    FRAMETYPE_FLAT= 'FLATFIELD'
     FRAMETYPE_DARK= 'DARK'
 
     def __init__(self, data_dir,
@@ -187,6 +187,8 @@ class DataReduction():
                                                  meta=meta,
                                                  unit="adu")))
             self._skyFileList.append(fname)
+
+        # TODO: considerare i cieli di tutti i dithering
         'PRIMO DITHERING'
         del self._skyFileList[35::]
         del self._skyIma[35::]

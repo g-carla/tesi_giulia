@@ -28,30 +28,22 @@ from astropy.io import fits
 from scipy.spatial import distance
 from astropy.stats import sigma_clipped_stats
 from photutils import make_source_mask
-from astropy.units import amp
 from astropy.table.table import Table
-from photutils.datasets.make import make_gaussian_sources_image,\
-    make_noise_image, apply_poisson_noise
 from photutils import Background2D, MedianBackground
 from astropy.stats import SigmaClip
-from photutils.detection.findstars import IRAFStarFinder, DAOStarFinder
-from astropy.modeling import models, fitting
-from astropy.modeling.fitting import LevMarLSQFitter
+from photutils.detection.findstars import IRAFStarFinder
 from astropy.stats import gaussian_fwhm_to_sigma
-from ccdproc.image_collection import ImageFileCollection
 from tesi.image_fitter import ImageFitter
 from tesi.image_creator import ImageCreator
 from astropy import units as u
-from photutils.background.core import MADStdBackgroundRMS, MMMBackground
 from astropy.stats.funcs import gaussian_sigma_to_fwhm
-from photutils.psf.groupstars import DAOGroup
-from photutils.psf.models import IntegratedGaussianPRF
-from photutils.psf.photometry import BasicPSFPhotometry, DAOPhotPSFPhotometry,\
-    IterativelySubtractedPSFPhotometry
-from photutils.utils.check_random_state import check_random_state
-from numpy import float64
-from tesi.detector import GenericDetector
-from tesi import image_creator, image_fitter, data_reduction
+from tesi import image_creator, image_fitter, data_reduction, image_aligner,\
+    astrometricError_estimator, ePSF_builder, match_astropy_tables,\
+    theoretical_astrometricError_test
+from ccdproc.ccddata import CCDData
+from skimage.transform._warps import warp
+from matplotlib.pyplot import xlabel, ylabel, xticks, yticks, plot
+from cmath import pi
 
 
 def getObjectNameFromFitsFile(filename):
@@ -313,6 +305,14 @@ def showNorm(imaOrCcd, **kwargs):
     im, _= imshow_norm(arr, ax=ax, **kwargs)
 
     fig.colorbar(im)
+
+
+def showImaLuci(ima):
+    showNorm(ima, cmap='gray', extent=[-120, 120, -120, 120])
+    xlabel('arcsec', size=12)
+    ylabel('arcsec', size=12)
+    xticks(size=11)
+    yticks(size=11)
 
 
 def _showNormOld(ima, **kwargs):
@@ -615,6 +615,52 @@ def makeMask(ccddata_list, n):
     return frameMedianMasked, maskAll
 
 
+def twoImagesAlignment():
+    fname1 = '/home/gcarla/tera1/201610/data/20161019/luci1.20161019.0732.fits'
+    fname2 = '/home/gcarla/tera1/201610/data/20161019/luci1.20161019.0741.fits'
+    ima1_floatType = fits.getdata(fname1).astype(float)
+    ima2_floatType = fits.getdata(fname2).astype(float)
+    sz = 40
+    bls = np.array([[1860, 1800], [380, 530], [560, 1780]])
+
+    ima1_cut = _extractSubIma(ima1_floatType, bls, sz)
+    ima2_cut = _extractSubIma(ima2_floatType, bls, sz)
+    ima1_cutClean = np.array([removebkg(ima)[3] for ima in ima1_cut])
+    ima2_cutClean = np.array([removebkg(ima)[3] for ima in ima2_cut])
+    im_fit = ImageFitter(thresholdInPhotons=8000,
+                         fwhm=4, min_separation=1,
+                         sharplo=0.2, sharphi=1.0,
+                         roundlo=-1.0, roundhi=1.0,
+                         peakmax=5e04)
+
+    pxcrd1 = []
+    for im in ima1_cutClean:
+        im_fit.fitSingleStarWithGaussianFit(im)
+        pxcrd1.append(im_fit.getCentroid())
+        pxcrd2 = []
+    for im in ima2_cutClean:
+        im_fit.fitSingleStarWithGaussianFit(im)
+        pxcrd2.append(im_fit.getCentroid())
+
+    x1 = np.array([pxcrd1[0][0], pxcrd1[1][0], pxcrd1[2][0]])
+    x2 = np.array([pxcrd2[0][0], pxcrd2[1][0], pxcrd2[2][0]])
+    y1 = np.array([pxcrd1[0][1], pxcrd1[1][1], pxcrd1[2][1]])
+    y2 = np.array([pxcrd2[0][1], pxcrd2[1][1], pxcrd2[2][1]])
+    shift_x = 2 - (x1.mean() - x2.mean())
+    shift_y = abs(2 + y1.mean() - y2.mean())
+
+    ima2_t = np.roll(ima2_floatType, (2, -2), axis=(1, 0))
+    a_11 = ima2_t
+    a_12 = np.roll(ima2_t, -1, axis=0)
+    a_21 = np.roll(ima2_t, -1, axis=1)
+    a_22 = np.roll(ima2_t, (-1, -1), axis=(1, 0))
+
+    ima2Toima1 = a_12*(1-shift_x)*shift_y + a_22*shift_x*shift_y + \
+        a_11*(1-shift_x)*(1-shift_y) + a_21*(shift_x)*(1-shift_y)
+
+    return ima2Toima1, ima1_floatType, ima2_floatType
+
+
 def main181228():
     drFileName= '/home/gcarla/DataReduction20161019.pkl'
     from tesi.data_reduction import DataReduction
@@ -624,8 +670,11 @@ def main181228():
     dr.setObjectName('NGC2419')
     return dr
 
+# TODO: Linearity and persistence analysis
+# ADUlin = ADUraw + 4.155x10^(-6)(ADUraw)^2
 
-def main181230():
+
+def main181230(darks, flats, skys, sciences):
     from tesi.detector import LuciDetector
     from ccdproc import Combiner
 #
@@ -635,16 +684,16 @@ def main181230():
 #     skys= dr._skyIma
 #     sciences= dr._scienceIma
 
-    drFileName = '/home/gcarla/tera1/201610/data/20161019'
-    dr = data_reduction.DataReduction(drFileName)
-    darks= dr.restoreFromFile(
-        '/home/gcarla/20161019_dataToRestore/darkImagesList.pkl')
-    flats= dr.restoreFromFile(
-        '/home/gcarla/20161019_dataToRestore/flatJ_ImagesList.pkl')
-    skys= dr.restoreFromFile(
-        '/home/gcarla/20161019_dataToRestore/skyJ_ImagesList.pkl')
-    sciences= dr.restoreFromFile(
-        '/home/gcarla/20161019_dataToRestore/scienceJ_ImagesList.pkl')
+#     drFileName = '/home/gcarla/tera1/201610/data/20161019'
+#     dr = data_reduction.DataReduction(drFileName)
+#     darks= dr.restoreFromFile(
+#         '/home/gcarla/20161019_dataToRestore/darkImagesList.pkl')
+#     flats= dr.restoreFromFile(
+#         '/home/gcarla/20161019_dataToRestore/flatJ_ImagesList.pkl')
+#     skys= dr.restoreFromFile(
+#         '/home/gcarla/20161019_dataToRestore/skyJ_ImagesList.pkl')
+#     sciences= dr.restoreFromFile(
+#         '/home/gcarla/20161019_dataToRestore/scienceJ_ImagesList.pkl')
 
     # deviation, serve a quacosa?
     def _computeDeviation(ccd0, detector):
@@ -655,10 +704,19 @@ def main181230():
         return cnew
 #    sciences0_new= _computeDeviation(sciences[0], LuciDetector())
 
+    def _makeClippedCombiner(ccdData_list):
+        ccdComb = Combiner(ccdData_list)
+        medCcd = ccdComb.median_combine()
+        minclip = np.median(medCcd) - 3*np.std(medCcd)
+        maxclip = np.median(medCcd) + 3*np.std(medCcd)
+        ccdComb.minmax_clipping(min_clip=minclip, max_clip=maxclip)
+        return ccdComb
+
     def _makeMasterDark(darks):
-        darkCombiner= Combiner(darks)
-        darkCombiner.sigma_clipping(low_thresh=3, high_thresh=3,
-                                    func=np.ma.median, dev_func=np.ma.std)
+        #         darkCombiner= Combiner(darks)
+        #         darkCombiner.sigma_clipping(low_thresh=3, high_thresh=3,
+        # func=np.ma.median, dev_func=np.ma.std)
+        darkCombiner = _makeClippedCombiner(darks)
         masterDark= darkCombiner.median_combine()
         masterDark.header['exptime']= darkCombiner.ccd_list[
             0].header['exptime']
@@ -688,9 +746,10 @@ def main181230():
                 add_keyword={'HIERARCH GIULIA DARK SUB': True})
             flatsDarkSubtracted.append(flat)
 
-        flatCombiner= Combiner(flatsDarkSubtracted)
-        flatCombiner.sigma_clipping(low_thresh=3, high_thresh=3,
-                                    func=np.ma.median, dev_func=np.ma.std)
+        flatCombiner= _makeClippedCombiner(flatsDarkSubtracted)
+#         flatCombiner= Combiner(flatsDarkSubtracted)
+#         flatCombiner.sigma_clipping(low_thresh=3, high_thresh=3,
+#                                     func=np.ma.median, dev_func=np.ma.std)
 
         def scalingFunc(arr):
             return 1./np.ma.average(arr)
@@ -790,120 +849,437 @@ def wcsTest(dr):
     aoStarCoordPx= ccd0wcs.world_to_pixel(aoStarCoordW)
 
 
-def main190121(image):
+# def main190121(image):
+#
+#     #     genDet= GenericDetector((32, 32))
+#     #     genDet.ronInElectrons=2.0
+#     #     ima_cre=image_creator.ImageCreator((32, 32))
+#     #     ima_cre.setDetector(genDet)
+#     #
+#     #     image= ima_cre.createGaussianImage(16, 16, 3.0, 3.0, 80000) + \
+#     #         ima_cre.createGaussianImage(20, 16.5, 3.0, 3.0, 8000) + \
+#     #         ima_cre.createGaussianImage(5,  20,  3.0, 3.0, 8000) + \
+#     #         ima_cre.createGaussianImage(14, 8.5, 3.0, 3.0, 8000)
+#
+#     n = gaussian_sigma_to_fwhm
+#     guessedSigma=2.0
+#     highThresholdToGetBrightStarOnly= 100
+#     psf_fitter = image_fitter.PSFphotometry(
+#         highThresholdToGetBrightStarOnly,
+#         guessedSigma*n, 1, 0.2, 1.0, -1.0, 1.0, (27, 27))
+#
+#     psf_fitter._psf_model.sigma.fixed=False
+#     psf_fitter.setImage(image)
+#     tab= psf_fitter.basicPSFphotometry()
+#     bestSigma= float(np.median(tab['sigma_fit']))
+#
+#     psf_fitter = image_fitter.PSFphotometry(
+#         None,
+#         bestSigma*n, 1, 0.2, 1.0, -1.0, 1.0, (27, 27))
+#
+#     # psf_fitter._psf_model.sigma.fixed=False
+#     psf_fitter.setImage(image)
+#     tabAll= psf_fitter.basicPSFphotometry()
+#     res= psf_fitter.basic_photom.get_residual_image()
+#     return tabAll, res  # , image
+#
+#
+# class main190125():
+#
+#     def __init__(self,
+#                  image,
+#                  thresholdForBrightStarsOnly,
+#                  guessedSigma,
+#                  minSeparationForUncrowdedStars):
+#
+#         self._image = image
+#         self._initThreshold = thresholdForBrightStarsOnly
+#         self._initSigma = guessedSigma
+#         self._initMinSeparation = minSeparationForUncrowdedStars
+#         self._n = gaussian_sigma_to_fwhm
+#
+#     def _computeBestSigma(self):
+#
+#         psf_fitter = image_fitter.PSFphotometry(
+#             self._initThreshold,
+#             self._initSigma*self._n, self._initMinSeparation,
+#             0.2, 1.0, -1.0, 1.0, (45, 45), 50)
+#
+#         psf_fitter._psf_model.sigma.fixed=False
+#         psf_fitter.setImage(self._image)
+#         self._initTab= psf_fitter.basicPSFphotometry()
+#         self._bestSigma= float(np.median(self._initTab['sigma_fit']))
+#         return self._bestSigma
+#
+#     def doPhotometry(self):
+#
+#         psf_fitter = image_fitter.PSFphotometry(
+#             None,
+#             self._computeBestSigma()*self._n,
+#             1, 0.2, 1.0, -1.0, 1.0, (45, 45), 50)
+#
+#         # psf_fitter._psf_model.sigma.fixed=False
+#         psf_fitter.setImage(self._image)
+#         tabAll= psf_fitter.basicPSFphotometry()
+#         res= psf_fitter.basic_photom.get_residual_image()
+#         return tabAll, res
 
-    #     genDet= GenericDetector((32, 32))
-    #     genDet.ronInElectrons=2.0
-    #     ima_cre=image_creator.ImageCreator((32, 32))
-    #     ima_cre.setDetector(genDet)
-    #
-    #     image= ima_cre.createGaussianImage(16, 16, 3.0, 3.0, 80000) + \
-    #         ima_cre.createGaussianImage(20, 16.5, 3.0, 3.0, 8000) + \
-    #         ima_cre.createGaussianImage(5,  20,  3.0, 3.0, 8000) + \
-    #         ima_cre.createGaussianImage(14, 8.5, 3.0, 3.0, 8000)
 
-    n = gaussian_sigma_to_fwhm
-    guessedSigma=2.0
-    highThresholdToGetBrightStarOnly= 100
-    psf_fitter = image_fitter.PSFphotometry(
-        highThresholdToGetBrightStarOnly,
-        guessedSigma*n, 1, 0.2, 1.0, -1.0, 1.0, (27, 27))
-
-    psf_fitter._psf_model.sigma.fixed=False
-    psf_fitter.setImage(image)
-    tab= psf_fitter.basicPSFphotometry()
-    bestSigma= float(np.median(tab['sigma_fit']))
-
-    psf_fitter = image_fitter.PSFphotometry(
-        None,
-        bestSigma*n, 1, 0.2, 1.0, -1.0, 1.0, (27, 27))
-
-    # psf_fitter._psf_model.sigma.fixed=False
-    psf_fitter.setImage(image)
-    tabAll= psf_fitter.basicPSFphotometry()
-    res= psf_fitter.basic_photom.get_residual_image()
-    return tabAll, res  # , image
+# def main190130(ccdData_list):
+#
+#     #     darks = restoreObjectListFromFile(
+#     #         '/home/gcarla/workspace/20161019_dataToRestore/darkImagesList.pkl')
+#     ccdComb = Combiner(ccdData_list)
+#     medCcd = ccdComb.median_combine()
+# #     medMedDarks = np.median(medDarks)
+# #     stdMedDarks = np.std(medDarks)
+# #     minclip = medMedDarks - 3*stdMedDarks
+# #     maxclip = medMedDarks + 3*stdMedDarks
+#
+#     minclip = np.median(medCcd) - 3*np.std(medCcd)
+#     maxclip = np.median(medCcd) + 3*np.std(medCcd)
+#
+#     ccdComb.minmax_clipping(min_clip=minclip, max_clip=maxclip)
+#     #ccdFinal = ccdComb.median_combine()
+#
+#     return ccdComb
 
 
-class main190125():
+# Ex. sort tables: sourceTabIma1.sort(['xcentroid'])
+
+# def findTransformationMatrix(sourceTabIma1, sourceTabIma2):
+#     PosX1 = np.array(sourceTabIma1['xcentroid'])
+#     PosY1 = np.array(sourceTabIma1['ycentroid'])
+#     PosX2 = np.array(sourceTabIma2['xcentroid'])
+#     PosY2 = np.array(sourceTabIma2['ycentroid'])
+#
+#     PosMatr1 = np.array([PosX1, PosY1, np.ones(len(sourceTabIma1))])
+#     PosMatr2 = np.array([PosX2, PosY2, np.ones(len(sourceTabIma2))])
+#
+#     TransfMat = np.dot(PosMatr2, np.linalg.pinv(PosMatr1))
+#     # LeastSqTransfMat = np.linalg.lstsq(np.linalg.pinv(PosMatr2),
+#     #                                   np.linalg.pinv(PosMatr1))
+#
+#     return TransfMat, PosMatr1, PosMatr2
+#
+#
+# def alignImage(ccdImaToAlign, transfMatrix):
+#     alignedIma = warp(ccdImaToAlign, transfMatrix,
+#                       output_shape=ccdImaToAlign.shape,
+#                       order=3, mode='constant',
+#                       cval=np.median(ccdImaToAlign.data))
+#     return alignedIma
+    # TODO: alignedIma is numpy.ndarray. Return as CCDData?
+
+class main190208():
 
     def __init__(self,
-                 image,
-                 thresholdForBrightStarsOnly,
-                 guessedSigma,
-                 minSeparationForUncrowdedStars):
+                 fitsname1,
+                 fitsname2):
 
-        self._image = image
-        self._initThreshold = thresholdForBrightStarsOnly
-        self._initSigma = guessedSigma
-        self._initMinSeparation = minSeparationForUncrowdedStars
-        self._n = gaussian_sigma_to_fwhm
+        self.ima1 = CCDData.read(fitsname1)
+        self.ima2 = CCDData.read(fitsname2)
 
-    def _computeBestSigma(self):
+    def _getIma2AlignedtoIma1(self):
+        im_align = image_aligner.ImageAligner(self.ima1, self.ima2)
+        self.ima2Aligned = im_align.applyTransformation()
+        return self.ima2Aligned
 
-        psf_fitter = image_fitter.PSFphotometry(
-            self._initThreshold,
-            self._initSigma*self._n, self._initMinSeparation,
-            0.2, 1.0, -1.0, 1.0, (45, 45), 50)
+    def getStarsCoords(self):
 
-        psf_fitter._psf_model.sigma.fixed=False
-        psf_fitter.setImage(self._image)
-        self._initTab= psf_fitter.basicPSFphotometry()
-        self._bestSigma= float(np.median(self._initTab['sigma_fit']))
-        return self._bestSigma
+        self._basic1 = fitWithEPSFModel(self.ima1)
+        self._basic2 = fitWithEPSFModel(self.ima2)
 
-    def doPhotometry(self):
+        self.basic1Sort, self.basic2Sort = match2TablesPhotometry(
+            self._basic1, self._basic2, 5)
+        self.coords1 = np.vstack([np.array(self.basic1Sort['x_fit']),
+                                  np.array(self.basic1Sort['y_fit'])]).T
+        self.coords2 = np.vstack([np.array(self.basic2Sort['x_fit']),
+                                  np.array(self.basic2Sort['y_fit'])]).T
+        return self.coords1, self.coords2
 
-        psf_fitter = image_fitter.PSFphotometry(
-            None,
-            self._computeBestSigma()*self._n,
-            1, 0.2, 1.0, -1.0, 1.0, (45, 45), 50)
-
-        # psf_fitter._psf_model.sigma.fixed=False
-        psf_fitter.setImage(self._image)
-        tabAll= psf_fitter.basicPSFphotometry()
-        res= psf_fitter.basic_photom.get_residual_image()
-        return tabAll, res
+    def measureDistances(self):
+        distances = np.linalg.norm(
+            self.getStarsCoords()[1]-self.getStarsCoords()[0],
+            axis=1)
+        plt.figure()
+        plt.plot(distances, '.-')
+        return distances
 
 
-class main190128():
+def main190213():
+    fname = '/home/gcarla/workspace/20161019/reduction/FilterJ/IndividualFrames_Dither1/NGC2419_20161019_luci1_List.pkl'
+    imasList = restoreObjectListFromFile(fname)
+    est = astrometricError_estimator.EstimateAstrometricError(imasList)
+    est.fitStarsOnAllFrames()
+    est.createCubeOfStarsInfo()
+    meanx = est.getMeanPositionX()
+    meany = est.getMeanPositionY()
+    stdx = est.getStdXinArcsecs()
+    stdy = est.getStdYinArcsecs()
+    astromError = np.sqrt(stdx**2 + stdy**2)
 
-    def __init__(self,
-                 image,
-                 thresholdForBrightStarsOnly,
-                 guessedAlpha,
-                 guessedGamma,
-                 minSeparationForUncrowdedStars):
+    area = 400*astromError
+    colors = astromError
+    plt.scatter(meanx, meany, s=area, c=colors)
 
-        self._image = image
-        self._initThreshold = thresholdForBrightStarsOnly
-        self._initAlpha = guessedAlpha
-        self._initGamma = guessedGamma
-        self._initMinSeparation = minSeparationForUncrowdedStars
-        self._n = gaussian_sigma_to_fwhm
 
-    def _computeBestAlphaAndGamma(self):
+def infToZero(ima):
+    i = np.argwhere(np.isinf(ima))
+    y = i[:, 0]
+    x = i[:, 1]
+    ima[y, x]=0
+    return ima
 
-        psf_fitter = image_fitter.PSFphotometry(
-            self._initThreshold,
-            self._initSigma*self._n, self._initMinSeparation,
-            0.2, 1.0, -1.0, 1.0, (45, 45), 50)
 
-        psf_fitter._psf_model.sigma.fixed=False
-        psf_fitter.setImage(self._image)
-        self._initTab= psf_fitter.basicPSFphotometry()
-        self._bestSigma= float(np.median(self._initTab['sigma_fit']))
-        return self._bestSigma
+def nanToZero(ima):
+    i = np.argwhere(np.isnan(ima))
+    y = i[:, 0]
+    x = i[:, 1]
+    ima[y, x]=0
+    return ima
 
-    def doPhotometry(self):
 
-        psf_fitter = image_fitter.PSFphotometry(
-            None,
-            self._computeBestSigma()*self._n,
-            1, 0.2, 1.0, -1.0, 1.0, (45, 45), 50)
+def main190216():
+    imas = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/reduction/FilterJ/IndividualFrames_Dither1/NGC2419_20161019_luci1_ListFITS.pkl')
+    imasList = []
+    for ima in imas:
+        im = infToZero(ima)
+        im = nanToZero(ima)
+        imasList.append(im)
+    epsfImas = []
+    fitTabs = []
 
-        # psf_fitter._psf_model.sigma.fixed=False
-        psf_fitter.setImage(self._image)
-        tabAll= psf_fitter.basicPSFphotometry()
-        res= psf_fitter.basic_photom.get_residual_image()
-        return tabAll, res
+    def _getEPSFOnSingleFrame(ima):
+        builder = ePSF_builder.ePSFBuilder(threshold=1e04,
+                                           fwhm=3.)
+        builder.buildEPSF(ima)
+        epsfModel = builder.getEPSFModel()
+        return epsfModel
+
+    def _fitStarsWithEPSFOnSingleFrame(ima,
+                                       epsfModel,
+                                       fitshape,
+                                       apertureRadius):
+        ima_fit = image_fitter.ImageFitter(thresholdInPhotons=1e03,
+                                           fwhm=3., min_separation=3.,
+                                           sharplo=0.1, sharphi=2.0,
+                                           roundlo=-1.0, roundhi=1.0,
+                                           peakmax=5e04)
+        ima_fit.fitStarsWithBasicPhotometry(image=ima,
+                                            model=epsfModel,
+                                            fitshape=fitshape,
+                                            apertureRadius=apertureRadius)
+        fitTab = ima_fit.getFitTable()
+        return fitTab
+
+    for ima in imasList:
+        tab = _fitStarsWithEPSFOnSingleFrame(ima, _getEPSFOnSingleFrame(ima),
+                                             (55, 55), 55)
+        fitTabs.append(tab)
+        epsfImas.append(_getEPSFOnSingleFrame(ima).data)
+
+    def _matchTablesList(tabsList):
+        match = match_astropy_tables.MatchTables(2)
+        refTab = match.match2TablesPhotometry(tabsList[0], tabsList[1])[0]
+        for fitTab in tabsList[2:]:
+            _, refTab = match.match2TablesPhotometry(fitTab, refTab)
+
+        matchingFitTabs = []
+        for fitTab in tabsList:
+            tab1, _ = match.match2TablesPhotometry(fitTab, refTab)
+            matchingFitTabs.append(tab1)
+        return matchingFitTabs
+
+    estimator = astrometricError_estimator.EstimateAstrometricError(
+        _matchTablesList(fitTabs))
+    estimator.createCubeOfStarsInfo()
+    estimator.plotStandardAstroErrorOntheField(500)
+    d0_x, d0_y = estimator.getDisplacementsFromMeanPositions(0)
+    d1_x, d1_y = estimator.getDisplacementsFromMeanPositions(1)
+    d2_x, d2_y = estimator.getDisplacementsFromMeanPositions(2)
+    d3_x, d3_y = estimator.getDisplacementsFromMeanPositions(3)
+    d4_x, d4_y = estimator.getDisplacementsFromMeanPositions(4)
+    d5_x, d5_y = estimator.getDisplacementsFromMeanPositions(5)
+    d6_x, d6_y = estimator.getDisplacementsFromMeanPositions(6)
+    d7_x, d7_y = estimator.getDisplacementsFromMeanPositions(7)
+    d8_x, d8_y = estimator.getDisplacementsFromMeanPositions(8)
+
+    def plotDisp(dx, dy):
+        estimator.plotDisplacements(dx, dy)
+        plt.xlabel('px', size=13)
+        plt.ylabel('px', size=13)
+        plt.xticks(size=12)
+        plt.yticks(size=12)
+
+    def plotDispMinusTT(dx, dy):
+        estimator.plotDisplacementsMinusTT(dx, dy)
+        plt.xlabel('px', size=13)
+        plt.ylabel('px', size=13)
+        plt.xticks(size=12)
+        plt.yticks(size=12)
+
+
+def main190217():
+    tabs = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/plot/main190216/matchingTablesList.pkl')
+
+    posIma0 = np.vstack((np.array([np.array(tabs[0]['x_fit'])]),
+                         np.array([np.array(tabs[0]['y_fit'])]))).T
+    xRef = posIma0[:, 0]
+    yRef = posIma0[:, 1]
+
+    def getDisplacementFromFirstIma(i):
+        posIma = np.vstack((np.array([np.array(tabs[i]['x_fit'])]),
+                            np.array([np.array(tabs[i]['y_fit'])]))).T
+        d = posIma-posIma0
+        d_x = d[:, 0]
+        d_y = d[:, 1]
+        return d_x, d_y
+
+    d1_x, d1_y = getDisplacementFromFirstIma(1)
+    d2_x, d2_y = getDisplacementFromFirstIma(2)
+    d3_x, d3_y = getDisplacementFromFirstIma(3)
+    d4_x, d4_y = getDisplacementFromFirstIma(4)
+    d5_x, d5_y = getDisplacementFromFirstIma(5)
+    d6_x, d6_y = getDisplacementFromFirstIma(6)
+    d7_x, d7_y = getDisplacementFromFirstIma(7)
+    d8_x, d8_y = getDisplacementFromFirstIma(8)
+
+    def plotDisplacements(d_x, d_y):
+        plt.plot(xRef, yRef, '.', color='r', markersize=0.1)
+        plt.xlim(0, 2048)
+        plt.ylim(0, 2048)
+        plt.xlabel('px', size=13)
+        plt.ylabel('px', size=13)
+        plt.xticks(size=12)
+        plt.yticks(size=12)
+        for i in range(len(d_x)):
+            plt.arrow(x=xRef[i], y=yRef[i], dx=300*d_x[i], dy=300*d_y[i],
+                      head_width=20, head_length=20, color='r')
+
+    def plotDisplacementsMinusTT(d_x, d_y):
+        plt.plot(xRef, yRef, '.', color='r', markersize=0.1)
+        plt.xlim(0, 2048)
+        plt.ylim(0, 2048)
+        plt.xlabel('px', size=13)
+        plt.ylabel('px', size=13)
+        plt.xticks(size=12)
+        plt.yticks(size=12)
+        for i in range(len(d_x)):
+            plt.arrow(x=xRef[i], y=yRef[i], dx=300*(d_x[i]-d_x.mean()),
+                      dy=300*(d_y[i]-d_y.mean()), head_width=20,
+                      head_length=20, color='r')
+
+
+def main190218():
+    tabs = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/plot/main190216/matchingTablesList.pkl')
+    imas = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/reduction/FilterJ/IndividualFrames_Dither1/NGC2419_20161019_luci1_ListFITS.pkl')
+    imasList = []
+    for ima in imas:
+        im = infToZero(ima)
+        im = nanToZero(ima)
+        imasList.append(im)
+
+    def findTransfMatrixWithIma0(tab):
+        ima_al = image_aligner.ImageAligner(tabs[0], tab)
+        ima_al.findTransformationMatrixWithDAOPHOTTable()
+        matr = ima_al.getTransformationMatrix()
+        return matr
+
+    m1 = findTransfMatrixWithIma0(tabs[1])
+    m2 = findTransfMatrixWithIma0(tabs[2])
+    m3 = findTransfMatrixWithIma0(tabs[3])
+    m4 = findTransfMatrixWithIma0(tabs[4])
+    m5 = findTransfMatrixWithIma0(tabs[5])
+    m6 = findTransfMatrixWithIma0(tabs[6])
+    m7 = findTransfMatrixWithIma0(tabs[7])
+    m8 = findTransfMatrixWithIma0(tabs[8])
+
+    def applyTransformation(ima, matrix):
+        alignedIma = warp(ima, matrix,
+                          output_shape=ima.shape,
+                          order=3, mode='constant',
+                          cval=np.median(ima.data))
+        return alignedIma
+
+    ima1_new = applyTransformation(imasList[1], m1)
+    ima2_new = applyTransformation(imasList[2], m2)
+    ima3_new = applyTransformation(imasList[3], m3)
+    ima4_new = applyTransformation(imasList[4], m4)
+    ima5_new = applyTransformation(imasList[5], m5)
+    ima6_new = applyTransformation(imasList[6], m6)
+    ima7_new = applyTransformation(imasList[7], m7)
+    ima8_new = applyTransformation(imasList[8], m8)
+    imasList_new = [ima1_new, ima2_new, ima3_new, ima4_new, ima5_new,
+                    ima6_new, ima7_new, ima8_new]
+
+    alignedImaTabs = []
+    epsfAlignedImas = []
+    for ima in imasList_new:
+        tab = main190216()._fitStarsWithEPSFOnSingleFrame(
+            ima, main190216()._getEPSFOnSingleFrame(ima), (55, 55), 55)
+        alignedImaTabs.append(tab)
+        epsfAlignedImas.append(main190216()._getEPSFOnSingleFrame(ima).data)
+    tabs_new = [tabs[0], alignedImaTabs[0], alignedImaTabs[1],
+                alignedImaTabs[2], alignedImaTabs[3], alignedImaTabs[4],
+                alignedImaTabs[5], alignedImaTabs[6], alignedImaTabs[7]]
+    matchTabs = main190216()._matchTablesList(tabs_new)
+
+
+def fillBadValues(ima):
+
+    def infToMean(ima):
+        i = np.argwhere(np.isinf(ima))
+        y = i[:, 0]
+        x = i[:, 1]
+        ima[y, x]=ima.mean()
+        return ima
+
+    def nanToMean(ima):
+        i = np.argwhere(np.isnan(ima))
+        y = i[:, 0]
+        x = i[:, 1]
+        ima[y, x]=ima.mean()
+        return ima
+
+    im = infToMean(ima)
+    im = nanToMean(ima)
+    return im
+
+
+def main190220():
+
+    def showSingleGaussImaWithPhotNoise(shape, posX=17.02, posY=20.5,
+                                        flux=5e03, stdx=1.2, stdy=None):
+        ima_cre = image_creator.ImageCreator(shape)
+        ima_cre.usePoissonNoise(True)
+        ima = ima_cre.createGaussianImage(posX, posY, flux, stdx)
+        showNorm(ima)
+        plt.xlabel('px', size=12)
+        plt.ylabel('px', size=12)
+        plt.xticks(size=11)
+        plt.yticks(size=11)
+
+    def estimateTheoreticalAstromError():
+        test = theoretical_astrometricError_test.testTheoreticalAstrometricError()
+        test.estimateAstromErrorForDifferentFluxes()
+        err = test.getAstrometricErrorInPixels()
+        flux = np.arange(1e03, 1e05, 1e03)
+        ff = 1/np.sqrt(flux)
+        fwhm = 1.2*gaussian_sigma_to_fwhm
+        errxTheor = (fwhm*ff)/pi
+        errAllTheor = np.sqrt(2*errxTheor**2)
+        (err-errAllTheor).std()
+
+        plot(flux, err, '.-', label="Fit")
+        plt.legend()
+        plot(flux, errAllTheor, '.-', label="Theory")
+        plt.legend()
+        plt.xticks(size=11)
+        plt.yticks(size=11)
+        plt.xlabel('Flux', size=12)
+        plt.ylabel('Standard astrometric error [px]', size=12)

@@ -73,17 +73,26 @@ class ImageCreator(object):
     def createGaussianImage(self,
                             posX,
                             posY,
+                            fluxInPhotons,
                             stdX,
-                            stdY,
-                            fluxInPhotons):
+                            stdY=None):
         table = Table()
         table['x_mean']= [posX]
         table['y_mean']= [posY]
         table['x_stddev']= [stdX]
-        table['y_stddev']= [stdY]
+        if stdY is None:
+            table['y_stddev']= [stdX]
+        else:
+            table['y_stddev']= [stdY]
         table['flux']= [fluxInPhotons]
         self._table= table
-        return self.createImage()
+        ima = np.zeros(self._shape)
+        ima += make_gaussian_sources_image(
+            self._shape, self._table)
+        if self._usePoissonNoise:
+            ima= self._addShotNoise(ima)
+        return ima
+        # return self.createImage()
 
     def createIntegratedGaussianPRFImage(self,
                                          sigma,
@@ -99,6 +108,21 @@ class ImageCreator(object):
         ima = make_model_sources_image(
             self._shape, IntegratedGaussianPRF(), table)
         return ima
+
+    def createMoffatImage(self,
+                          posX,
+                          posY,
+                          gamma,
+                          alpha,
+                          peak):
+        table = Table()
+        table['x_0']= [posX]
+        table['y_0']= [posY]
+        table['gamma']= [gamma]
+        table['alpha']= [alpha]
+        table['amplitude']= [peak]
+        self._table= table
+        return self.createImage()
 
     def createMultipleIntegratedGaussianPRFImage(
             self,
