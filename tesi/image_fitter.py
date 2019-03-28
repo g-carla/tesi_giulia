@@ -109,6 +109,14 @@ class ImageFitter():
 #         if len(self.init_guessTable) == 0:
 #             raise Exception("No star found - (add info please)")
 
+    @staticmethod
+    def _centroid(ima):
+        sy, sx= ima.shape
+        y, x= np.mgrid[0:sy, 0:sx]
+        cx=np.sum(ima*x)/np.sum(ima)
+        cy=np.sum(ima*y)/np.sum(ima)
+        return cx, cy
+
     def fitSingleStarWithCentroid(self, ima):
         sy, sx= ima.shape
         y, x= np.mgrid[0:sy, 0:sx]

@@ -151,9 +151,88 @@ class ImageCreator(object):
                                stddevXRange=[2., 3],
                                stddevYRange=None,
                                fluxInPhotons=[1000., 10000],
-                               nStars=100):
+                               nStars=100,
+                               withSeed=False):
+        if withSeed is True:
+            np.random.seed(seed=12345)
         xMean= np.random.uniform(1, self._shape[1]-1, nStars)
         yMean= np.random.uniform(1, self._shape[0]-1, nStars)
+        sx= np.random.uniform(
+            stddevXRange[0], stddevXRange[1], nStars)
+        if stddevYRange is None:
+            sy= sx
+        else:
+            sy= np.random.uniform(
+                stddevYRange[0],
+                stddevYRange[1],
+                nStars)
+
+        theta= np.arctan2(yMean-0.5*self._shape[0],
+                          xMean-0.5*self._shape[1]) - np.pi/2
+
+        flux= np.random.uniform(
+            fluxInPhotons[0],
+            fluxInPhotons[1],
+            nStars)
+
+        self._table= Table()
+        self._table['x_mean']= xMean
+        self._table['y_mean']= yMean
+        self._table['x_stddev']= sx
+        self._table['y_stddev']= sy
+        self._table['theta']= theta
+        self._table['flux']= flux
+        ima= self.createImage()
+        return ima
+
+    def createMultipleGaussianInCentralRegion(self,
+                                              stddevXRange=[2., 3],
+                                              stddevYRange=None,
+                                              fluxInPhotons=[1000., 10000],
+                                              nStars=100):
+        xMean= np.random.uniform(self._shape[1]/4,
+                                 self._shape[1]-self._shape[1]/4,
+                                 nStars)
+        yMean= np.random.uniform(self._shape[0]/4,
+                                 self._shape[0]-self._shape[0]/4,
+                                 nStars)
+        sx= np.random.uniform(
+            stddevXRange[0], stddevXRange[1], nStars)
+        if stddevYRange is None:
+            sy= sx
+        else:
+            sy= np.random.uniform(
+                stddevYRange[0],
+                stddevYRange[1],
+                nStars)
+
+        theta= np.arctan2(yMean-0.5*self._shape[0],
+                          xMean-0.5*self._shape[1]) - np.pi/2
+
+        flux= np.random.uniform(
+            fluxInPhotons[0],
+            fluxInPhotons[1],
+            nStars)
+
+        self._table= Table()
+        self._table['x_mean']= xMean
+        self._table['y_mean']= yMean
+        self._table['x_stddev']= sx
+        self._table['y_stddev']= sy
+        self._table['theta']= theta
+        self._table['flux']= flux
+        ima= self.createImage()
+        return ima
+
+    def createMultipleGaussianIntegerCentroids(self,
+                                               stddevXRange=[
+                                                   2., 3],
+                                               stddevYRange=None,
+                                               fluxInPhotons=[
+                                                   1000., 10000],
+                                               nStars=100):
+        xMean= np.random.randint(1, self._shape[1]-1, nStars)
+        yMean= np.random.randint(1, self._shape[0]-1, nStars)
         sx= np.random.uniform(
             stddevXRange[0], stddevXRange[1], nStars)
         if stddevYRange is None:
