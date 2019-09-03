@@ -342,7 +342,8 @@ def plotArrowsInLuciFOVInPixels(xPix, yPix, d_xPix, d_yPix, n=300):
                   head_width=20, head_length=20, color='r')
 
 
-def plotDisplacementsInLUCI1sFoV_oneColor(xC, yC, d_x, d_y, color, n=300):
+def plotDisplacementsInLUCI1sFoV_oneColor(xC, yC, d_x, d_y, color, n=300,
+                                          ):
     xC_new = (xC-1024)*0.119
     yC_new = (yC-1024)*0.119
     dx_new = d_x*0.119
@@ -352,7 +353,7 @@ def plotDisplacementsInLUCI1sFoV_oneColor(xC, yC, d_x, d_y, color, n=300):
     plt.ylim(-120, 120)
     for i in range(len(d_x)):
         plt.arrow(x=xC_new[i], y=yC_new[i], dx=n*dx_new[i], dy=n*dy_new[i],
-                  head_width=2, head_length=2, color=color)
+                  head_width=1, head_length=1, color=color)
     plt.xlabel('arcsec', size=13)
     plt.ylabel('arcsec', size=13)
     plt.xticks(size=12)
@@ -400,7 +401,7 @@ def plotDisplacemensAndSave(xc, yc, dx_list, dy_list, color, pathStr=None):
         plt.close()
 
 
-def plotArrowsColoredByIma(xMean, yMean, dx_list, dy_list):
+def plotArrowsColoredByIma(xMean, yMean, dx_list, dy_list, n=300):
     number = len(dx_list)
     cmap = plt.get_cmap('viridis')
     colors = [cmap(i) for i in np.linspace(0, 1, number)]
@@ -409,7 +410,8 @@ def plotArrowsColoredByIma(xMean, yMean, dx_list, dy_list):
                                               yMean,
                                               dx_list[i],
                                               dy_list[i],
-                                              colors[i])
+                                              colors[i],
+                                              n=n)
 
 
 # def _showNormOld(ima, **kwargs):
@@ -418,6 +420,27 @@ def plotArrowsColoredByIma(xMean, yMean, dx_list, dy_list):
 #     norm= simple_norm(ima, 'linear', percent=99.5)
 #     plt.imshow(ima, origin='lower', norm=norm)
 #     plt.colorbar()
+
+
+def plotAndSaveDisplacementsInImasCloseLoop(tab, pathStr, w=0.005):
+    ae = astrometricError_estimator.EstimateAstrometricError(tab)
+    ae.createCubeOfStarsInfo()
+
+    xMean = ae.getMeanPositionX()
+    yMean = ae.getMeanPositionY()
+    dx_list = []
+    dy_list = []
+    for i in range(len(tab)):
+        dx, dy = ae.getDisplacementsFromMeanPositions(i)
+        dx_list.append(dx)
+        dy_list.append(dy)
+
+    for i in range(len(dx_list)):
+        # plt.figure()
+        plotDisplacementsInLUCI1sFoV_multiColor(xMean, yMean,
+                                                dx_list[i], dy_list[i], w=w)
+        plt.savefig(pathStr + 'multicolor_H_1_'+'%d' %(i))
+        plt.close()
 
 
 def tricksForBetterImasToShow(ccdIma):
@@ -1427,8 +1450,9 @@ def main190220():
 
 
 def buildEPSFsAndFitImaCuts(image):
-    listOfImaCuts = [image[0:1024, 0:1024], image[1024:2048, 0:1024],
-                     image[0:1024, 1024:2048], image[1024:2048, 1024:2048]]
+    listOfImaCuts = [image[0:1024, 0:1024], image[0:1024, 1024:2048],
+                     image[1024:2048, 1024:2048], image[1650:, 100:600],
+                     image[1250:1650, 200:600]]
 
     def _buildEPSF(ima):
         epsf = ePSF_builder.ePSFBuilder(ima, 5e03, 3.)
@@ -1443,36 +1467,38 @@ def buildEPSFsAndFitImaCuts(image):
     for ima in listOfImaCuts:
         epsfsList.append(_buildEPSF(ima))
 
-    def _fitStars(ima, model):
-        ima_fit = image_fitter.ImageFitter(1e03, 3., 3., 0.1, 2.0, -1.0, 1.0,
-                                           5e04)
-        ima_fit.fitStarsWithBasicPhotometry(ima, model, (21, 21), 45)
-        fitTab = ima_fit.getFitTable()
-        return fitTab
 
-    tabsList = []
-    for i in range(len(listOfImaCuts)):
-        tabImaCut = _fitStars(listOfImaCuts[i], epsfsList[i])
-        tabsList.append(tabImaCut)
+#     def _fitStars(ima, model):
+#         ima_fit = image_fitter.ImageFitter(1e03, 3., 3., 0.1, 2.0, -1.0, 1.0,
+#                                            5e04)
+#         ima_fit.fitStarsWithBasicPhotometry(ima, model, (21, 21), 45)
+#         fitTab = ima_fit.getFitTable()
+#         return fitTab
 
-    tabsList[1]['y_fit'] = tabsList[1]['y_fit'] + 1024
-    tabsList[2]['x_fit'] = tabsList[2]['x_fit'] + 1024
-    tabsList[3]['x_fit'] = tabsList[3]['x_fit'] + 1024
-    tabsList[3]['y_fit'] = tabsList[3]['y_fit'] + 1024
-
-    tabAllStars = tabsList[0].copy()
-    tabAllStars.remove_rows(range(len(tabAllStars)))
-
-    for tab in tabsList:
-        for i in range(len(tab)):
-            tabAllStars.add_row(tab[i])
+#     tabsList = []
+#     for i in range(len(listOfImaCuts)):
+#         tabImaCut = _fitStars(listOfImaCuts[i], epsfsList[i])
+#         tabsList.append(tabImaCut)
+#
+#     tabsList[1]['y_fit'] = tabsList[1]['y_fit'] + 1024
+#     tabsList[2]['x_fit'] = tabsList[2]['x_fit'] + 1024
+#     tabsList[3]['x_fit'] = tabsList[3]['x_fit'] + 1024
+#     tabsList[3]['y_fit'] = tabsList[3]['y_fit'] + 1024
+#
+#     tabAllStars = tabsList[0].copy()
+#     tabAllStars.remove_rows(range(len(tabAllStars)))
+#
+#     for tab in tabsList:
+#         for i in range(len(tab)):
+#             tabAllStars.add_row(tab[i])
 
     #del listOftabsImaCuts[0]
 #     for tab in tabsList:
 #         tabAllStars['x_fit'] = tabsList[i]['x_fit']
 #         tabAllStars['y_fit'] = tabsList[i]['y_fit']
 
-    return listOfImaCuts, epsfsList, tabAllStars
+    return epsfsList
+    # return listOfImaCuts, epsfsList, tabAllStars
 
 
 class IRAFStarFinderExcludingMaskedPixel(IRAFStarFinder):
@@ -1841,6 +1867,23 @@ def matchAllFiltersTabs(tabJ, tabH, tabK):
     return newTabJ, newTabH, newTabK
 
 
+def matchAllJTabs(tab1, tab2, tab3, tab4, tab5, n=5):
+
+    mm = matchStarsTablesList([tab1[0], tab2[0], tab3[0], tab4[0], tab5[0]],
+                              max_shift=n)
+    ref1 = mm[0]
+    ref2 = mm[1]
+    ref3 = mm[2]
+    ref4 = mm[3]
+    ref5 = mm[4]
+    newTab1 = matchStarsTablesListWithRefTab(tab1, ref1, 1)
+    newTab2 = matchStarsTablesListWithRefTab(tab2, ref2, 1)
+    newTab3 = matchStarsTablesListWithRefTab(tab3, ref3, 1)
+    newTab4 = matchStarsTablesListWithRefTab(tab4, ref4, 1)
+    newTab5 = matchStarsTablesListWithRefTab(tab5, ref5, 1)
+    return newTab1, newTab2, newTab3, newTab4, newTab5
+
+
 def main190320_matchAllFiltersTabs():
     tabJ1 = restoreObjectListFromFile(
         '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/FilterJ/'
@@ -2111,6 +2154,32 @@ def main190321PlotFitAccuracyHalfPx():
     plt.yticks(size=11)
 
 
+def main190321PlotFitPrecisionHalfPx():
+    pre2Half = restoreObjectListFromFile(
+        '/home/gcarla/workspace/fit_test/test_fitPrecision/fwhm_2_HalfPx.pkl')
+    pre3Half = restoreObjectListFromFile(
+        '/home/gcarla/workspace/fit_test/test_fitPrecision/fwhm_3_HalfPx.pkl')
+    pre4Half = restoreObjectListFromFile(
+        '/home/gcarla/workspace/fit_test/test_fitPrecision/fwhm_4_HalfPx.pkl')
+
+    pre5Half = restoreObjectListFromFile(
+        '/home/gcarla/workspace/fit_test/test_fitPrecision/fwhm_5_HalfPx.pkl')
+
+    plt.loglog(pre2Half.fluxVector, pre2Half.errors*119, 'r',
+               label='FWHM = %g $^{\prime\prime}$' %(pre2Half._fwhm*0.119))
+    plt.loglog(pre3Half.fluxVector, pre3Half.errors*119, 'b',
+               label='FWHM = %g $^{\prime\prime}$' %(pre3Half._fwhm*0.119))
+    plt.loglog(pre4Half.fluxVector, pre4Half.errors*119, 'y',
+               label='FWHM = %g $^{\prime\prime}$' %(pre4Half._fwhm*0.119))
+    plt.loglog(pre5Half.fluxVector, pre5Half.errors*119, 'g',
+               label='FWHM = %g $^{\prime\prime}$' %(pre5Half._fwhm*0.119))
+    plt.legend()
+    plt.xlabel('N [fotoni]', size=12)
+    plt.ylabel('std [mas]', size=12)
+    plt.xticks(size=11)
+    plt.yticks(size=11)
+
+
 def main190321PlotFitAccuracyWithinPixelWithFWHM2Px():
     acc0 = restoreObjectListFromFile(
         '/home/gcarla/workspace/fit_test/test_fitAccuracy/fwhm_2_diagPx0.pkl')
@@ -2341,7 +2410,7 @@ def main190325_plotDisplacementsInImasOpenLoop():
                                                 dx_list[i], dy_list[i])
 
 
-def main190325_plotDifferentialTJWithAlignedNGSs():
+def main190325_plotDifferentialTJWithAlignedNGSs_dither1():
     tabJ = restoreObjectListFromFile(
         '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/'
         'FilterJ/Dither1/matchingTabsWithNGSalignedOnMeanNGS_list_J_dither1.pkl')
@@ -2366,11 +2435,9 @@ def main190325_plotDifferentialTJWithAlignedNGSs():
     plt.title('K$_{s}$')
 
 
-def main190325_exampleDifferentialTJCurveFitting():
-    tabJ = restoreObjectListFromFile(
-        '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/'
-        'FilterJ/Dither1/matchingTabsWithNGSalignedOnMeanNGS_list_J_dither1.pkl')
-    deJ = differentialTJ_estimator.estimateDifferentialTJ(tabJ, (418, 1375))
+def exampleDifferentialTJCurveFitting(tab, ngsCoord, n):
+    deJ = differentialTJ_estimator.estimateDifferentialTJ(tab, ngsCoord,
+                                                          n=n)
     errJPara = deJ.astrometricError()[:, 0]*119
     errJPerp = deJ.astrometricError()[:, 1]*119
     thetaJ = deJ.polCoord[0]*0.119
@@ -2381,7 +2448,26 @@ def main190325_exampleDifferentialTJCurveFitting():
     paramJPara, covJPara = curve_fit(_func, thetaJ, errJPara)
     paramJPerp, covJPerp = curve_fit(_func, thetaJ, errJPerp)
 
-    return paramJPara, paramJPerp
+    return paramJPara, paramJPerp, covJPara, covJPerp
+
+
+def main190325_exampleDifferentialTJCurveFitting_alldithers():
+    tabJ = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/'
+        'sumDither/fitTables/tabJ_aligned_list.pkl')
+    deJ = differentialTJ_estimator.estimateDifferentialTJ(tabJ, (418, 1375),
+                                                          n=20)
+    errJPara = deJ.astrometricError()[:, 0]*119
+    errJPerp = deJ.astrometricError()[:, 1]*119
+    thetaJ = deJ.polCoord[0]*0.119
+
+    def _func(th, a):
+        return a*th
+
+    paramJPara, covJPara = curve_fit(_func, thetaJ, errJPara)
+    paramJPerp, covJPerp = curve_fit(_func, thetaJ, errJPerp)
+
+    return paramJPara, paramJPerp, covJPara, covJPerp
 
 
 def fitEPSFWithMoffat(epsfData, threshold=0.005, fwhm=3., minsep=10,
@@ -2765,17 +2851,209 @@ def main190328_plotEPSFFwhm():
             res.append(res1)
         return np.array(res)
 
-    resJ= restoreAndFit('J', [1, 2, 3, 5])
+    resJ= restoreAndFit('J', [1, 2, 3, 4, 5])
     fwhmJ= resJ[:, :, 2].flatten()
     resH= restoreAndFit('H', [1, 2, 3, 4])
     fwhmH= resH[:, :, 2].flatten()
-    resK= restoreAndFit('Ks', [1, 2, 13])
+    resK= restoreAndFit('Ks', [1, 2, 3, 4, 13])
     fwhmK= resK[:, :, 2].flatten()
     plt.figure()
-    plt.plot(fwhmJ, label='filtro J')
-    plt.plot(fwhmH, label='filtro H')
-    plt.plot(fwhmK, label='filtro Ks')
+    plt.plot(fwhmJ, '^', label='Filtro J')
+    plt.plot(fwhmH, '^', label='Filtro H')
+    plt.plot(fwhmK, '^', label='Filtro K$_{s}$')
     plt.ylabel('FWHM [arcsec]')
     plt.xlabel('# immagine')
     plt.legend()
     return resJ, resH, resK
+
+
+def main190329_plotPsfVariability():
+    resJ, resH, resK = main190328_plotEPSFFwhm()
+    fwhmJDither1 = resJ[0, :, 2]
+    fwhmJDither2 = resJ[1, :, 2]
+    fwhmJDither3 = resJ[2, :, 2]
+    fwhmJDither4 = resJ[3, :, 2]
+    fwhmJDither5 = resJ[4, :, 2]
+
+    fwhmHDither1 = resH[0, :, 2]
+    fwhmHDither2 = resH[1, :, 2]
+    fwhmHDither3 = resH[2, :, 2]
+    fwhmHDither4 = resH[3, :, 2]
+
+    fwhmKDither1 = resK[0, :, 2]
+    fwhmKDither2 = resK[1, :, 2]
+    fwhmKDither3 = resK[2, :, 2]
+    fwhmKDither4 = resK[3, :, 2]
+    #fwhmKDither13 = resK[4, :, 2]
+
+    def _nicePlot(filter):
+        plt.legend()
+        plt.xlabel('# immagine', size=12)
+        plt.ylabel('FWHM [arcsec]', size=12)
+        plt.xticks(size=11)
+        plt.yticks(size=11)
+        plt.title('Filtro '+filter)
+
+    plt.figure()
+    plot(np.arange(1, 10), fwhmJDither1, '^', label='Dither 1')
+    plot(np.arange(10, 19), fwhmJDither2, '^', label='Dither 2')
+    plot(np.arange(19, 28), fwhmJDither3, '^', label='Dither 3')
+    plot(np.arange(28, 37), fwhmJDither4, '^', label='Dither 4')
+    plot(np.arange(37, 46), fwhmJDither5, '^', label='Dither 5')
+    _nicePlot('J')
+    plt.ylim(0.34, 0.45)
+
+    plt.figure()
+    plot(np.arange(1, 15), fwhmHDither1, '^', label='Dither 1')
+    plot(np.arange(15, 29), fwhmHDither2, '^', label='Dither 2')
+    plot(np.arange(29, 43), fwhmHDither3, '^', label='Dither 3')
+    plot(np.arange(43, 57), fwhmHDither4, '^', label='Dither 4')
+    _nicePlot('H')
+
+    plt.figure()
+    plot(np.arange(1, 12), fwhmKDither1, '^', label='Dither 1')
+    plot(np.arange(12, 23), fwhmKDither2, '^', label='Dither 2')
+    plot(np.arange(23, 34), fwhmKDither3, '^', label='Dither 3')
+    plot(np.arange(34, 45), fwhmKDither4, '^', label='Dither 4')
+    #plot(np.arange(45, 56), fwhmKDither13, '^', label='Dither 13')
+    _nicePlot('K$_{s}$')
+
+
+def main190329_plotDifferentialTJWithAlignedNGSs_dither1():
+    tabJ = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/'
+        'FilterJ/Dither1/matchingTabsWithNGSalignedOnMeanNGS_list_J_dither1.pkl')
+    tabH = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/'
+        'FilterH/Dither1/matchingTabsWithNGSalignedOnMeanNGS_list_H_dither1.pkl')
+    tabK = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/'
+        'FilterKs/Dither1/matchingTabsWithNGSalignedOnMeanNGS_list_Ks_dither1.pkl')
+
+    deJ = differentialTJ_estimator.estimateDifferentialTJ(
+        tabJ, (418, 1375), 15)
+    deH = differentialTJ_estimator.estimateDifferentialTJ(
+        tabH, (418, 1375), 50)
+    deK = differentialTJ_estimator.estimateDifferentialTJ(
+        tabK, (415, 1373), 50)
+
+    deJ.plot()
+    plt.title('Filtro J - Dither 1')
+    plt.ylim(0, 50)
+    plt.figure()
+    deH.plot()
+    plt.title('Filtro H - Dither 1')
+    plt.ylim(0, 50)
+    plt.figure()
+    deK.plot()
+    plt.ylim(0, 50)
+    plt.title('Filtro K$_{s}$ - Dither 1')
+
+
+def main190329_plotDifferentialTJWithAlignedNGSs_dither2():
+    tabJ = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/'
+        'FilterJ/Dither2/matchingTabsWithNGSalignedOnMeanNGS_list_J_dither2.pkl')
+    tabH = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/'
+        'FilterH/Dither2/matchingTabsWithNGSalignedOnMeanNGS_list_H_dither2.pkl')
+    tabK = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/'
+        'FilterKs/Dither2/matchingTabsWithNGSalignedOnMeanNGS_list_Ks_dither2.pkl')
+
+    deJ = differentialTJ_estimator.estimateDifferentialTJ(
+        tabJ, (418, 1375), 15)
+    deH = differentialTJ_estimator.estimateDifferentialTJ(
+        tabH, (418, 1375), 50)
+    deK = differentialTJ_estimator.estimateDifferentialTJ(
+        tabK, (415, 1373), 50)
+
+    deJ.plot()
+    plt.title('Filtro J - Dither 2')
+    plt.ylim(0, 50)
+    plt.figure()
+    deH.plot()
+    plt.title('Filtro H - Dither 2')
+    plt.ylim(0, 50)
+    plt.figure()
+    deK.plot()
+    plt.title('Filtro K$_{s}$ - Dither 2')
+    plt.ylim(0, 50)
+
+
+def main190329_plotDifferentialTJWithAlignedNGSs_dither3():
+    tabJ = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/'
+        'FilterJ/Dither3/matchingTabsWithNGSalignedOnMeanNGS_list_J_dither3.pkl')
+    tabH = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/'
+        'FilterH/Dither3/matchingTabsWithNGSalignedOnMeanNGS_list_H_dither3.pkl')
+    tabK = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/'
+        'FilterKs/Dither3/matchingTabsWithNGSalignedOnMeanNGS_list_Ks_dither3.pkl')
+
+    deJ = differentialTJ_estimator.estimateDifferentialTJ(
+        tabJ, (418, 1375), 30)
+    deH = differentialTJ_estimator.estimateDifferentialTJ(
+        tabH, (418, 1375), 50)
+    deK = differentialTJ_estimator.estimateDifferentialTJ(
+        tabK, (415, 1373), 50)
+
+    deJ.plot()
+    plt.title('Filtro J - Dither 3')
+    plt.ylim(0, 50)
+    plt.figure()
+    deH.plot()
+    plt.title('Filtro H - Dither 3')
+    plt.ylim(0, 50)
+    plt.figure()
+    deK.plot()
+    plt.title('Filtro K$_{s}$ - Dither 3')
+    plt.ylim(0, 50)
+
+
+def main190329_plotDifferentialTJWithAlignedNGSs_dither4():
+    tabJ = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/'
+        'FilterJ/Dither4/matchingTabsWithNGSalignedOnMeanNGS_list_J_dither4.pkl')
+    tabH = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/'
+        'FilterH/Dither4/matchingTabsWithNGSalignedOnMeanNGS_list_H_dither4.pkl')
+    tabK = restoreObjectListFromFile(
+        '/home/gcarla/workspace/20161019/DataToRestore_forAnalysis/'
+        'FilterKs/Dither4/matchingTabsWithNGSalignedOnMeanNGS_list_Ks_dither4.pkl')
+
+    deJ = differentialTJ_estimator.estimateDifferentialTJ(
+        tabJ, (418, 1375), 30)
+    deH = differentialTJ_estimator.estimateDifferentialTJ(
+        tabH, (418, 1375), 50)
+    deK = differentialTJ_estimator.estimateDifferentialTJ(
+        tabK, (415, 1373), 50)
+
+    deJ.plot()
+    plt.title('Filtro J - Dither 4')
+    plt.ylim(0, 50)
+    plt.figure()
+    deH.plot()
+    plt.title('Filtro H - Dither 4')
+    plt.ylim(0, 50)
+    plt.figure()
+    deK.plot()
+    plt.title('Filtro K$_{s}$ - Dither 4')
+    plt.ylim(0, 50)
+
+
+def main190329DistanceBetweenAllStars(table):
+
+    def _distanceBetweenTwoStars(star1, star2):
+        dd= np.array([star1['x_fit'] - star2['x_fit'],
+                      star1['y_fit'] - star2['y_fit']])
+        return np.linalg.norm(dd)
+
+    res = []
+    for star1 in table:
+        res2 = []
+        for star2 in table:
+            res2.append(_distanceBetweenTwoStars(star1, star2))
+        res.append(res2)
+    return np.array(res)

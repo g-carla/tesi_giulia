@@ -205,6 +205,7 @@ class ImageCleaner():
             self.sciFinalInADU.header[
                 'FILTER'] = self.science[0].header['FILTER']
             self.sciFinalInADU.header['DATE'] = self.science[0].header['DATE']
+            self.sciFinalInADU.header['GAIN'] = self.science[0].header['GAIN']
         else:
             self.sci_dark = self._subtractDark(self.science)
             #self.sciInElectrons = self._adu2Electron(self.sci_dark)

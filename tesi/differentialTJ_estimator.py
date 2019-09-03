@@ -87,14 +87,15 @@ class estimateDifferentialTJ():
         self._rotatedDist = np.array(self._rotatedDist)
         return np.array(astrometricError)
 
-    def plot(self):
+    def plot(self, color1, color2, leg):
         ae = self.astrometricError()
         plot(self.polCoord[0]*0.119, ae[:, 0]*0.119*1e03,
-             '.', label="$\sigma_{\parallel}$")
+             '.', label="$\sigma_{\parallel}$", color=color1)
         # plt.legend()
         plot(self.polCoord[0]*0.119, ae[:, 1]*0.119*1e03,
-             '.', label="$\sigma_{\perp}$")
-        plt.legend()
+             '.', label="$\sigma_{\perp}$", color=color2)
+        if leg == 'yes':
+            plt.legend()
         plt.xlabel('d$_{NGS}$ [arcsec]', size=12)
         plt.ylabel('$\sigma_{tilt\:jitter}$ [mas]', size=12)
         plt.xticks(size=11)
