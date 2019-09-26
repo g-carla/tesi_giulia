@@ -3,65 +3,208 @@ Created on 16 ott 2018
 
 @author: gcarla
 '''
+
 import numpy as np
-from ccdproc.combiner import Combiner
 import ccdproc
 from astropy import units as u
+from ccdproc.combiner import Combiner
 from astropy.modeling import models
-from ccdproc.core import cosmicray_median, cosmicray_lacosmic
+from hmac import new
 
 
 class ImageCleaner():
     '''
+    Reduce astronomical images performing dark subtraction, flatfield 
+    correction and sky subtraction.
+
+    Parameters
+    ----------
+    darkImas, flatImas, skyImas: lists of dark, flat and sky images as CCDData.
+    sciImas: single scientific image as CCDData or list of scientific images as
+        CCDData.
     '''
 
-    def __init__(self,
-                 darks,
-                 flats,
-                 skies,
-                 science):
-        '''
-        darks, flats, skies = lists of CCDData
-        dataToCalibrate = list of CCDData or single CCDData
-        '''
-        self.darks = darks
-        self.flats = flats
-        self.skies = skies
-        self.science = science
+    def __init__(self, darkImas, flatImas, skyImas, sciImas):
+        self._darks = darkImas
+        self._flats = flatImas
+        self._skies = skyImas
+        self._science = sciImas
         self.masterDark = None
         self.masterFlat = None
         self.masterSky = None
-        self.sciFinalInADU = None
-        self.sciFinalInElectrons = None
+        self.masterSci = None
 
-    def _setScienceImage(self, sciIma):
-        self.science = sciIma
+    def setScienceImage(self, ima):
+        self._science = ima
 
-    def getScienceImageInADU(self):
-        if self.sciFinalInADU is None:
-            self._calibrateScienceImage()
-        return self.sciFinalInADU
+    def getScienceImage(self, unit='electron'):
+        '''
+        Return the scientific image after the calibration.
 
-    def getScienceImageInElectrons(self):
-        if self.sciFinalInElectrons is None:
-            self.sciFinalInElectrons = self._adu2Electron(
-                self.getScienceImageInADU())
-        return self.sciFinalInElectrons
+        Parameters
+        ----------
+        unit: 'electron' or 'ADU'. Default is 'electron'.
 
-    def _getDarkImage(self):
-        if self.masterDark is None:
-            self._makeMasterDark()
-        return self.masterDark
+        Return
+        ------
+        masterSci: reduced scientfic image.
+        '''
+        self._unit = unit
+        self._computeScienceImage()
+        return self.masterSci
 
-    def _getFlatImage(self):
+    def getSkyImage(self):
+        if self.masterSky is None:
+            self._computeSkyImage()
+        return self.masterSky
+
+    def getFlatImage(self):
         if self.masterFlat is None:
-            self._makeMasterFlat()
+            self._computeFlatImage()
         return self.masterFlat
 
-    def _getSkyImage(self):
-        if self.masterSky is None:
-            self._makeMasterSky()
-        return self.masterSky
+    def getDarkImage(self):
+        if self.masterDark is None:
+            self._computeDarkImage()
+        return self.masterDark
+
+    def _computeScienceImage(self):
+        #self.sciTrim = self._overscanAndtrim(self.science)
+        mSky = self.getSkyImage()
+        if type(self._science) == list:
+            sciCorrected = []
+            for sci in self._science:
+                sciDark = self._subtractDark(sci)
+                sciFlat = self._correctForFlat(sciDark)
+                sciSky = sciFlat.subtract(mSky)
+                sciCorrected.append(sciSky)
+            self._sciCombiner = Combiner(sciCorrected)
+            self.masterSci = self._sciCombiner.median_combine()
+            print('Writing the header')
+            self.masterSci.header['FRAMETYP'] = \
+                self._science[0].header['FRAMETYP']
+            self.masterSci.header['OBJECT'] = self._science[0].header['OBJECT']
+            self.masterSci.header['DIT'] = self._science[0].header['DIT']
+            self.masterSci.header['FILTER'] = \
+                self._science[0].header['FILTER']
+            self.masterSci.header['OBJRA'] = self._science[0].header['OBJRA']
+            self.masterSci.header['OBJDEC'] = self._science[0].header['OBJDEC']
+            self.masterSci.header['DATE'] = self._science[0].header['DATE']
+            self.masterSci.header['GAIN [e-/ADU]'] = \
+                self._science[0].header['GAIN']
+            if self._unit == 'electron':
+                self.masterSci = self._adu2Electron(self.masterSci)
+                self.masterSci.header['UNIT'] = 'electrons'
+        else:
+            sci_dark = self._subtractDark(self._science)
+            sciFlat = self._correctForFlat(sci_dark)
+            self.masterSci = sciFlat.subtract(mSky)
+            # self.masterSci = cosmicray_lacosmic(self.sci_sky,
+            #                                        sigclip=5)
+            print('Writing the header')
+            self.masterSci.header = self._science.header
+        if self._unit == 'electron':
+            self.masterSci = self._adu2Electron(self.masterSci)
+            self.masterSci.header['UNIT'] = 'electrons'
+
+    def _computeSkyImage(self):
+        print('Getting masterSky')
+        #self.skyTrim = self._overscanAndtrim(self.skies)
+        self._skiesCorrected = []
+        for sky in self._skies:
+            skyDark = self._subtractDark(sky)
+            skyFlat = self._correctForFlat(skyDark)
+            self._skiesCorrected.append(skyFlat)
+        self._skyCombiner = Combiner(self._skiesCorrected)
+        self._iterativeSigmaClipping(self._skyCombiner, 1)
+        self.masterSky = self._skyCombiner.median_combine()
+
+    def _computeFlatImage(self):
+        print('Getting masterFlat')
+        #self.flatsTrim = self._overscanAndtrim(self.flats)
+        self._flatsDarkSubtracted = []
+        for flat in self._flats:
+            flat = self._subtractDark(flat)
+            self._flatsDarkSubtracted.append(flat)
+        self._flatCombiner= self._makeClippedCombiner(
+            self._flatsDarkSubtracted)
+        scalingFunc = lambda arr: 1/np.ma.average(arr)
+        self._flatCombiner.scaling = scalingFunc
+        self.masterFlat = self._flatCombiner.median_combine()
+        self.masterFlat.header = self._flatsDarkSubtracted[0].meta
+        #self.masterFlatInElectrons = self._adu2Electron(self.masterFlat)
+        if self.masterFlat.data.min() == 0:
+            i = np.argwhere(self.masterFlat.data==0)
+            y = i[:, 0]
+            x = i[:, 1]
+            self.masterFlat.data[y, x] = 0.1
+        elif self.masterFlat.data.min() < 0:
+            i = np.argwhere(self.masterFlat.data==0)
+            y = i[:, 0]
+            x = i[:, 1]
+            self.masterFlat.data[y, x] = 0.1
+
+    def _computeDarkImage(self):
+        print('Getting masterDark')
+        #self.darksTrim = self._overscanAndtrim(self.darks)
+        self._darkCombiner = self._makeClippedCombiner(self._darks)
+        self.masterDark = self._darkCombiner.median_combine()
+        self.masterDark.header[
+            'DIT'] = self._darkCombiner.ccd_list[0].header['DIT']
+        self.masterDark.header['RDNOISE'] = self._darkCombiner.ccd_list[
+            0].header['RDNOISE']
+        self.masterDark.header[
+            'GAIN'] = self._darkCombiner.ccd_list[0].header['GAIN']
+        self.masterDark.header['DATASEC'] = self._darkCombiner.ccd_list[
+            0].header['DATASEC']
+
+    def _subtractDark(self, ccd):
+        mDark = self.getDarkImage()
+        print('Subtracting masterDark')
+        ccd = ccdproc.subtract_dark(
+            ccd,
+            mDark,
+            exposure_time='DIT',
+            exposure_unit=u.second,
+            add_keyword={'HIERARCH GIULIA DARK SUB': True})
+        return ccd
+
+    def _correctForFlat(self, ccd):
+        mFlat = self.getFlatImage()
+        print('Correcting for flat')
+        ccd = ccdproc.flat_correct(ccd, mFlat)
+        return ccd
+
+    def _makeClippedCombiner(self, ccdData_list, n=3):
+        ccdComb = Combiner(ccdData_list)
+        medCcd = ccdComb.median_combine()
+        minclip = np.median(medCcd.data) - n*medCcd.data.std()
+        maxclip = np.median(medCcd.data) + n*medCcd.data.std()
+        ccdComb.minmax_clipping(min_clip=minclip, max_clip=maxclip)
+        return ccdComb
+
+
+#     def _iterativeSigmaClipping(self, combiner, n):
+#         old = 0
+#         new = combiner.data_arr.mask.sum()
+#         print("old %d" % old)
+#         print("new %d" % new)
+#         while(new>old):
+#             combiner.sigma_clipping(low_thresh=n, high_thresh=n,
+#                                     func=np.ma.median, dev_func=np.ma.std)
+#             old = new
+#             new = combiner.data_arr.mask.sum()
+#             print("old %d" % old)
+#             print("new %d" % new)
+
+    def _iterativeSigmaClipping(self, combiner, n):
+        old = 0
+        new = combiner.data_arr.mask.sum()
+        while(new>old):
+            combiner.sigma_clipping(low_thresh=n, high_thresh=n,
+                                    func=np.ma.median, dev_func=np.ma.std)
+            old = new
+            new = combiner.data_arr.mask.sum()
 
     def _overscanAndtrim(self, ccd):
         poly_model = models.Polynomial1D(1)
@@ -97,121 +240,9 @@ class ImageCleaner():
                                             model=poly_model)
             ccd_OvTrim = ccdproc.trim_image(
                 ccd, ccd.header['DATASEC'])
-
         return ccd_OvTrim
 
-    def _subtractDark(self, ccd):
-        ccd = ccdproc.subtract_dark(
-            ccd,
-            self._getDarkImage(),
-            exposure_time='DIT',
-            exposure_unit=u.second,
-            add_keyword={'HIERARCH GIULIA DARK SUB': True})
-        return ccd
-
-    def _subtractDarkAndCorrectForFlat(self, ccd_list):
-        ccdCorrect_list = []
-        for ccd in ccd_list:
-            ccd_dark = self._subtractDark(ccd)
-            #ccdInElectrons = self._adu2Electron(ccd_dark)
-            ccdFlat = ccdproc.flat_correct(ccd_dark,
-                                           self._getFlatImage())
-            ccdCorrect_list.append(ccdFlat)
-        return ccdCorrect_list
-
     def _adu2Electron(self, ccd):
-        return ccdproc.gain_correct(ccd, ccd.header['GAIN'], u.electron/u.adu)
-
-    # TODO: remove cosmic rays?
-
-#     def _scalingFunc(self, arr):
-#         return 1./np.ma.average(arr)
-
-    def _iterativeSigmaClipping(self, combiner, n):
-        old= 0
-        new= combiner.data_arr.mask.sum()
-        #print("new %d" % new)
-        while(new>old):
-            combiner.sigma_clipping(low_thresh=n, high_thresh=n,
-                                    func=np.ma.median, dev_func=np.ma.std)
-            old= new
-            new= combiner.data_arr.mask.sum()
-            #print("new %d" % new)
-
-    def _makeClippedCombiner(self, ccdData_list, n=3):
-        ccdComb = Combiner(ccdData_list)
-        medCcd = ccdComb.median_combine()
-        minclip = np.median(medCcd.data) - n*medCcd.data.std()
-        maxclip = np.median(medCcd.data) + n*medCcd.data.std()
-        ccdComb.minmax_clipping(min_clip=minclip, max_clip=maxclip)
-        return ccdComb
-
-    def _makeMasterDark(self):
-        #self.darksTrim = self._overscanAndtrim(self.darks)
-        self.darkCombiner = self._makeClippedCombiner(self.darks)
-        self.masterDark = self.darkCombiner.median_combine()
-        self.masterDark.header[
-            'DIT'] = self.darkCombiner.ccd_list[0].header['DIT']
-        self.masterDark.header['RDNOISE'] = self.darkCombiner.ccd_list[
-            0].header['RDNOISE']
-        self.masterDark.header[
-            'GAIN'] = self.darkCombiner.ccd_list[0].header['GAIN']
-        self.masterDark.header['DATASEC'] = self.darkCombiner.ccd_list[
-            0].header['DATASEC']
-        # TODO: something else to be added to the masterDark.header?
-
-    def _makeMasterFlat(self):
-        #self.flatsTrim = self._overscanAndtrim(self.flats)
-        self.flatsDarkSubtracted=[]
-        for flat in self.flats:
-            flat= self._subtractDark(flat)
-            self.flatsDarkSubtracted.append(flat)
-        self.flatCombiner= self._makeClippedCombiner(self.flatsDarkSubtracted)
-#         flatCombiner= Combiner(flatsDarkSubtracted)
-#         flatCombiner.sigma_clipping(low_thresh=3, high_thresh=3,
-#                                     func=np.ma.median, dev_func=np.ma.std)
-        scalingFunc = lambda arr: 1/np.ma.average(arr)
-        self.flatCombiner.scaling= scalingFunc
-        self.masterFlat= self.flatCombiner.median_combine()
-        self.masterFlat.header= self.flatsDarkSubtracted[0].meta
-        #self.masterFlatInElectrons = self._adu2Electron(self.masterFlat)
-
-        if self.masterFlat.data.min() == 0:
-            i = np.argwhere(self.masterFlat.data==0)
-            y = i[:, 0]
-            x = i[:, 1]
-            self.masterFlat.data[y, x] = 0.1
-        elif self.masterFlat.data.min() < 0:
-            i = np.argwhere(self.masterFlat.data==0)
-            y = i[:, 0]
-            x = i[:, 1]
-            self.masterFlat.data[y, x] = 0.1
-
-    def _makeMasterSky(self):
-        #self.skyTrim = self._overscanAndtrim(self.skies)
-        self.skiesClean = self._subtractDarkAndCorrectForFlat(self.skies)
-        self.skyCombiner = Combiner(self.skiesClean)
-        self._iterativeSigmaClipping(self.skyCombiner, 1)
-        self.masterSky = self.skyCombiner.median_combine()
-
-    def _calibrateScienceImage(self):
-        #self.sciTrim = self._overscanAndtrim(self.science)
-        if type(self.science) == list:
-            self.sciCombiner = Combiner(
-                self._subtractDarkAndCorrectForFlat(self.science))
-            self.sciMedian = self.sciCombiner.median_combine()
-            self.sciFinalInADU = self.sciMedian.subtract(self._getSkyImage())
-            self.sciFinalInADU.header['DIT'] = self.science[0].header['DIT']
-            self.sciFinalInADU.header[
-                'FILTER'] = self.science[0].header['FILTER']
-            self.sciFinalInADU.header['DATE'] = self.science[0].header['DATE']
-            self.sciFinalInADU.header['GAIN'] = self.science[0].header['GAIN']
-        else:
-            self.sci_dark = self._subtractDark(self.science)
-            #self.sciInElectrons = self._adu2Electron(self.sci_dark)
-            self.sciFlat = ccdproc.flat_correct(self.sci_dark,
-                                                self._getFlatImage())
-            self.sciFinalInADU = self.sciFlat.subtract(self._getSkyImage())
-            # self.sciFinalInADU = cosmicray_lacosmic(self.sci_sky,
-            #                                        sigclip=5)
-            self.sciFinalInADU.header = self.science.header
+        print('Converting from ADU to e-')
+        return ccdproc.gain_correct(ccd,
+                                    ccd.header['GAIN'], u.electron/u.adu)
