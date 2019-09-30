@@ -66,19 +66,19 @@ class StarFinder():
                                      peakmax=self.peakmax)
         return self.finder
 
-    def getFoundStarsTable(self, ima, mask=None):
+    def getStarsTable(self, ima, mask=None):
         self.starsTable = self._setFinder().find_stars(ima, mask)
         return self.starsTable
 
     def showFoundStars(self, ima, color, aperture_radius=7):
-        tab = self.getFoundStarsTable(ima)
+        tab = self.getStarsTable(ima)
         positions = (tab['xcentroid'], tab['ycentroid'])
         apertures = CircularAperture(positions, r=aperture_radius)
         sandbox.showNorm(ima)
         apertures.plot(color=color)
 
     def showFoundStarsInLUCIFoV(self, ima, color, aperture_radius=7):
-        tab = self.getFoundStarsTable(ima)
+        tab = self.getStarsTable(ima)
         positions = (tab['xcentroid'], tab['ycentroid'])
         apertures = CircularAperture(positions, r=aperture_radius)
         sandbox.showNorm(ima, extent=[-120, 120, -120, 120])

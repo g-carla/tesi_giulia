@@ -9,12 +9,11 @@ import ccdproc
 from astropy import units as u
 from ccdproc.combiner import Combiner
 from astropy.modeling import models
-from hmac import new
 
 
 class ImageCleaner():
     '''
-    Reduce astronomical images performing dark subtraction, flatfield 
+    Reduce astronomical images performing dark subtraction, flatfield
     correction and sky subtraction.
 
     Parameters
@@ -36,6 +35,15 @@ class ImageCleaner():
 
     def setScienceImage(self, ima):
         self._science = ima
+
+    def setMasterDark(self, mDark):
+        self.masterDark = mDark
+
+    def setMasterFlat(self, mFlat):
+        self.masterFlat = mFlat
+
+    def setMasterSky(self, mSky):
+        self.masterSky = mSky
 
     def getScienceImage(self, unit='electron'):
         '''
@@ -69,7 +77,7 @@ class ImageCleaner():
         return self.masterDark
 
     def _computeScienceImage(self):
-        #self.sciTrim = self._overscanAndtrim(self.science)
+        #        self.sciTrim = self._overscanAndtrim(self.science)
         mSky = self.getSkyImage()
         if type(self._science) == list:
             sciCorrected = []
@@ -90,11 +98,7 @@ class ImageCleaner():
             self.masterSci.header['OBJRA'] = self._science[0].header['OBJRA']
             self.masterSci.header['OBJDEC'] = self._science[0].header['OBJDEC']
             self.masterSci.header['DATE'] = self._science[0].header['DATE']
-            self.masterSci.header['GAIN [e-/ADU]'] = \
-                self._science[0].header['GAIN']
-            if self._unit == 'electron':
-                self.masterSci = self._adu2Electron(self.masterSci)
-                self.masterSci.header['UNIT'] = 'electrons'
+            self.masterSci.header['GAIN'] = self._science[0].header['GAIN']
         else:
             sci_dark = self._subtractDark(self._science)
             sciFlat = self._correctForFlat(sci_dark)
@@ -103,13 +107,14 @@ class ImageCleaner():
             #                                        sigclip=5)
             print('Writing the header')
             self.masterSci.header = self._science.header
+
         if self._unit == 'electron':
             self.masterSci = self._adu2Electron(self.masterSci)
             self.masterSci.header['UNIT'] = 'electrons'
 
     def _computeSkyImage(self):
         print('Getting masterSky')
-        #self.skyTrim = self._overscanAndtrim(self.skies)
+#        self.skyTrim = self._overscanAndtrim(self.skies)
         self._skiesCorrected = []
         for sky in self._skies:
             skyDark = self._subtractDark(sky)
@@ -121,7 +126,7 @@ class ImageCleaner():
 
     def _computeFlatImage(self):
         print('Getting masterFlat')
-        #self.flatsTrim = self._overscanAndtrim(self.flats)
+#       self.flatsTrim = self._overscanAndtrim(self.flats)
         self._flatsDarkSubtracted = []
         for flat in self._flats:
             flat = self._subtractDark(flat)
@@ -132,7 +137,7 @@ class ImageCleaner():
         self._flatCombiner.scaling = scalingFunc
         self.masterFlat = self._flatCombiner.median_combine()
         self.masterFlat.header = self._flatsDarkSubtracted[0].meta
-        #self.masterFlatInElectrons = self._adu2Electron(self.masterFlat)
+#        self.masterFlatInElectrons = self._adu2Electron(self.masterFlat)
         if self.masterFlat.data.min() == 0:
             i = np.argwhere(self.masterFlat.data==0)
             y = i[:, 0]
@@ -146,7 +151,7 @@ class ImageCleaner():
 
     def _computeDarkImage(self):
         print('Getting masterDark')
-        #self.darksTrim = self._overscanAndtrim(self.darks)
+#        self.darksTrim = self._overscanAndtrim(self.darks)
         self._darkCombiner = self._makeClippedCombiner(self._darks)
         self.masterDark = self._darkCombiner.median_combine()
         self.masterDark.header[

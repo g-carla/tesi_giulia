@@ -45,6 +45,9 @@ class epsfBuilder():
         self._size = size
         self._ePSFstars = None
 
+    def setImage(self, image):
+        self._image = image
+
     def removeBackground(self):
         bkg_est = MMMBackground()
         self._image -= bkg_est(self._image)

@@ -16,8 +16,6 @@ class estimateDifferentialTJ():
 
     Parameters
     ----------
-    imasList : list of stellar images
-
     starsTab: list of astropy.table.Table produced from
                 a first stellar fit on imasList
 
