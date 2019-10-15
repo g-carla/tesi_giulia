@@ -4,7 +4,7 @@ Created on 24 mar 2019
 @author: gcarla
 '''
 import numpy as np
-from tesi import astrometricError_estimator
+from tesi import astrometric_error_estimator
 from astropy.table.table import Table
 
 
@@ -14,7 +14,7 @@ class alignNGS():
         self._starsTabs = starsTabsList
         self._NGSRefCoords = NGSRefCoords
         self._maxShift = n
-        self._est = astrometricError_estimator.EstimateAstrometricError(
+        self._est = astrometric_error_estimator.EstimateAstrometricError(
             self._starsTabs)
         self._est.createCubeOfStarsInfo()
 

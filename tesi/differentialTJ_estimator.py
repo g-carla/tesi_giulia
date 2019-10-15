@@ -19,7 +19,7 @@ class estimateDifferentialTJ():
     starsTab: list of astropy.table.Table produced from
                 a first stellar fit on imasList
 
-    For J 161019 dither 1 x_NGS=414
+    For J 161019 dither 1 x_NGS=417, y_NGS=1376
     '''
 
     def __init__(self, starsTabs, NGSCoordinates, n=2):
@@ -67,7 +67,7 @@ class estimateDifferentialTJ():
         return np.array([[np.cos(theta), np.sin(theta)],
                          [-np.sin(theta), np.cos(theta)]])
 
-    def astrometricError(self):
+    def getDTJError(self):
         self.polCoord= self._toPolar(self._meanDistanceFromMeanNGS())
         self._allPos= np.dstack((self.est.getStarsPositionX().T,
                                  self.est.getStarsPositionY().T))
@@ -85,17 +85,22 @@ class estimateDifferentialTJ():
         self._rotatedDist = np.array(self._rotatedDist)
         return np.array(astrometricError)
 
-    def plot(self, color1, color2, leg):
-        ae = self.astrometricError()
-        plot(self.polCoord[0]*0.119, ae[:, 0]*0.119*1e03,
-             '.', label="$\sigma_{\parallel}$", color=color1)
-        # plt.legend()
-        plot(self.polCoord[0]*0.119, ae[:, 1]*0.119*1e03,
-             '.', label="$\sigma_{\perp}$", color=color2)
+    def plotDTJError(self, unit='arcsec', leg='yes'):
+        ae = self.getDTJError()
+        if unit=='arcsec':
+            plot(self.polCoord[0]*0.119, ae[:, 0]*0.119*1e03,
+                 '.', label="$\sigma_{\parallel}$")
+            plot(self.polCoord[0]*0.119, ae[:, 1]*0.119*1e03,
+                 '.', label="$\sigma_{\perp}$")
+            plt.xlabel('d$_{NGS}$ [arcsec]', size=12)
+            plt.ylabel('$\sigma_{tilt\:jitter}$ [mas]', size=12)
+        elif unit=='px':
+            plot(self.polCoord[0], ae[:, 0], '.', label="$\sigma_{\parallel}$")
+            plot(self.polCoord[0], ae[:, 1], '.', label="$\sigma_{\perp}$")
+            plt.xlabel('d$_{NGS}$ [px]', size=12)
+            plt.ylabel('$\sigma_{tilt\:jitter}$ [px]', size=12)
         if leg == 'yes':
             plt.legend()
-        plt.xlabel('d$_{NGS}$ [arcsec]', size=12)
-        plt.ylabel('$\sigma_{tilt\:jitter}$ [mas]', size=12)
         plt.xticks(size=11)
         plt.yticks(size=11)
-        #plt.ylim(0, 39)
+#        plt.ylim(0, 39)

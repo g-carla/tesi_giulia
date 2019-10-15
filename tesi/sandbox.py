@@ -47,7 +47,7 @@ def showNorm(imaOrCcd, **kwargs):
 
 def plot3D(xShape, yShape, data, cbarMin=None, cbarMax=None, **kwargs):
     #     from matplotlib.ticker import LinearLocator, FormatStrFormatter
-    from mpl_toolkits.mplot3d import Axes3D
+    #    from mpl_toolkits.mplot3d import Axes3D
 
     fig = plt.figure()
     ax = fig.gca(projection='3d')
@@ -78,15 +78,13 @@ def restoreObjectListFromFile(filename):
 
 
 def getDarksForReduction():
-    imFil = image_filter.ImageFilter('/Users/giuliacarla/eclipse-workspace/'
-                                     '20161019')
+    imFil = image_filter.ImageFilter('/home/gcarla/tera1/201610/data/20161019')
     darkImas, darkNames = imFil.getLists('DARK', 3.0)
     return darkImas, darkNames
 
 
 def getFlatsForReduction():
-    imFil = image_filter.ImageFilter('/Users/giuliacarla/eclipse-workspace/'
-                                     '20161019')
+    imFil = image_filter.ImageFilter('/home/gcarla/tera1/201610/data/20161019')
     flatImasJ, flatNamesJ = imFil.getLists('FLAT', 3.0, FILTER='J')
     flatImasH, flatNamesH = imFil.getLists('FLATFIELD', 3.0, FILTER='H')
     flatImasK, flatNamesK = imFil.getLists('FLATFIELD', 3.0, FILTER='Ks')
@@ -98,8 +96,7 @@ def getFlatsForReduction():
 
 
 def getSkiesForReduction():
-    imFil = image_filter.ImageFilter('/Users/giuliacarla/eclipse-workspace/'
-                                     '20161019')
+    imFil = image_filter.ImageFilter('/home/gcarla/tera1/201610/data/20161019')
     skyImasJ, skyNamesJ = imFil.getLists('SKY', 3.0, FILTER='J',
                                          OBJECT='NGC2419')
     skyImasH, skyNamesH = imFil.getLists('SKY', 3.0, FILTER='H',
@@ -113,13 +110,12 @@ def getSkiesForReduction():
 
 def getScisForReduction():
     '''
-    ATTENTION: all dithers in sciLists. For reduction: check the log file 
+    ATTENTION: all dithers in sciLists. For reduction: check the log file
     and split sciImas and sciNames in N lists (N = number of dithers).
     Example: J_imas_dither1 = sciImasJ[0:9]
     '''
 
-    imFil = image_filter.ImageFilter('/Users/giuliacarla/eclipse-workspace/'
-                                     '20161019')
+    imFil = image_filter.ImageFilter('/home/gcarla/tera1/201610/data/20161019')
     sciImasJ, sciNamesJ = imFil.getLists('SCIENCE', 3.0, FILTER='J',
                                          OBJECT='NGC2419')
     sciImasH, sciNamesH = imFil.getLists('SCIENCE', 3.0, FILTER='H',
