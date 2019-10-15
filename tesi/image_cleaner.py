@@ -18,7 +18,7 @@ class ImageCleaner():
 
     Parameters
     ----------
-    darkImas, flatImas, skyImas: lists of dark, flat and sky images as CCDData.
+    darkImas, flatImas, skyImas: list of dark, flat and sky images as CCDData.
     sciImas: single scientific image as CCDData or list of scientific images as
         CCDData.
     '''

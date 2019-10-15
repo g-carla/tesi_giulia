@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.pyplot import clf
 
 
-class EstimateAstrometricError():
+class EstimateAstrometricError(object):
     '''
     '''
 
@@ -161,24 +161,13 @@ class EstimateAstrometricError():
             # , width=w)
             plt.quiver(xMeanNew, yMeanNew, dxNew, dyNew, colors)
             cb = plt.colorbar()
-            cb.set_label(cbarLabel, rotation=90, size=10)
+            cb.set_label(cbarLabel, rotation=90, size=12)
+            cb.ax.tick_params(labelsize=11)
         else:
             q = ax.quiver(xMeanNew, yMeanNew, dxNew, dyNew, color=color)
             ax.quiverkey(q, 0.4, 1.05, arrowLegendLenght, label=legendLabel,
                          labelpos='E', fontproperties={'size': 12})
-
-#             plt.plot(xMeanNew, yMeanNew,
-#                      '.', color='r', markersize=0.1)
-#             plt.xlim(-1024, 1024)
-#             plt.ylim(-1024, 1024)
-#             plt.xlabel('pixel', size=13)
-#             plt.ylabel('pixel', size=13)
-#             for i in range(len(dx)):
-#                 plt.arrow(x=xMeanNew[i], y=yMeanNew[i],
-#                           dx=n*dx[i], dy=n*dy[i],
-#                           head_width=20, head_length=20, color='r')
-        plt.xticks(size=12)
-        plt.yticks(size=12)
+        ax.tick_params(labelsize=12)
 
 
 #     def plotDisplacementsMinusTT(self, d_x, d_y):
@@ -191,3 +180,88 @@ class EstimateAstrometricError():
 #             plt.arrow(x=xMean[i], y=yMean[i], dx=300*(d_x[i]-d_x.mean()),
 #                       dy=300*(d_y[i]-d_y.mean()), head_width=20,
 #                       head_length=20, color='r')
+
+
+class EstimateDifferentialTiltJitter(EstimateAstrometricError):
+
+    def __init__(self, tabsList, NGSCoordinates, unit='mas', n=2):
+
+        super().__init__(tabsList, unit)
+        self.NGSCoordinates = NGSCoordinates
+        '''
+        For J 161019 dither 1 x_NGS=417, y_NGS=1376
+        '''
+        self._maxShift = n
+        self.nStars= self.starsX.shape[1]
+        self.nImages= self.starsX.shape[0]
+
+    def _findIndexTabRelativeToNGS(self):
+        xNGS= self.NGSCoordinates[0]
+        yNGS= self.NGSCoordinates[1]
+        xx = np.array(self.tabsList[0]['x_fit'])
+        yy = np.array(self.tabsList[0]['y_fit'])
+        i = np.argwhere((np.abs(xx-xNGS) < self._maxShift) &
+                        (np.abs(yy-yNGS) < self._maxShift))
+        return i[0][0]
+
+#     def _getNGSCoordinates(self):
+#         i = self._findIndexTabRelativeToNGS()
+#         self.NGS_coords = np.vstack((
+#             np.array([np.array(tab['x_fit'][i]) for tab in self.tabsList]),
+#             np.array([np.array(tab['y_fit'][i]) for tab in self.tabsList]))).T
+#         return self.NGS_coords
+
+    def _getNGSMeanPosition(self):
+        i = self._findIndexTabRelativeToNGS()
+        return self.getStarsMeanPosition()[:, i]
+
+    def _meanDistanceFromMeanNGS(self):
+        return (self.getStarsMeanPosition().T-self._getNGSMeanPosition()).T
+
+    def _toPolar(self, cartCoord):
+        theta= np.arctan2(cartCoord[1], cartCoord[0])
+        rho= np.linalg.norm(cartCoord, axis=0)
+        return np.vstack((rho, theta))
+
+    def _makeRotationMatrix(self, theta):
+        return np.array([[np.cos(theta), np.sin(theta)],
+                         [-np.sin(theta), np.cos(theta)]])
+
+    def getDTJError(self):
+        self.polCoord= self._toPolar(self._meanDistanceFromMeanNGS())
+        self._allPos= np.dstack((self.starsX.T,
+                                 self.starsY.T))
+        astrometricError= []
+        self._distFromMeanNGS = []
+        self._rotatedDist = []
+        for i in range(self.nStars):
+            rotMat= self._makeRotationMatrix(self.polCoord[1, i])
+            distFromMeanNGS= self._allPos[i]-self._getNGSMeanPosition()
+            rotatedDistance= np.dot(rotMat, distFromMeanNGS.T).T
+            astrometricError.append(np.std(rotatedDistance, axis=0))
+            self._distFromMeanNGS.append(distFromMeanNGS)
+            self._rotatedDist.append(rotatedDistance)
+        self._distFromMeanNGS = np.array(self._distFromMeanNGS)
+        self._rotatedDist = np.array(self._rotatedDist)
+        return np.array(astrometricError)
+
+    def plotDTJError(self, unit='arcsec', leg='yes'):
+        ae = self.getDTJError()
+        if unit=='arcsec':
+            plt.plot(self.polCoord[0]*0.119, ae[:, 0]*0.119*1e03,
+                     '.', label="$\sigma_{\parallel}$")
+            plt.plot(self.polCoord[0]*0.119, ae[:, 1]*0.119*1e03,
+                     '.', label="$\sigma_{\perp}$")
+            plt.xlabel('d$_{NGS}$ [arcsec]', size=12)
+            plt.ylabel('$\sigma_{tilt\:jitter}$ [mas]', size=12)
+        elif unit=='px':
+            plt.plot(
+                self.polCoord[0], ae[:, 0], '.', label="$\sigma_{\parallel}$")
+            plt.plot(self.polCoord[0], ae[:, 1], '.', label="$\sigma_{\perp}$")
+            plt.xlabel('d$_{NGS}$ [px]', size=12)
+            plt.ylabel('$\sigma_{tilt\:jitter}$ [px]', size=12)
+        if leg == 'yes':
+            plt.legend()
+        plt.xticks(size=11)
+        plt.yticks(size=11)
+#        plt.ylim(0, 39)
