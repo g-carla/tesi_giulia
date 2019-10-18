@@ -91,9 +91,8 @@ class EstimateAstrometricError(object):
         elif self._unit=='pixel':
             plt.ylabel('$\sigma_{y}$ [px]')
 
-    def plotAstroErrorOntheField(self, n=500, fieldUnit='arcsec'):
+    def plotAstroErrorOntheField(self, area=40, fieldUnit='arcsec'):
         err = self.getAstrometricError()
-        area = n*err
         colors = err*1e03
         if fieldUnit=='arcsec':
             xMean = (self.getStarsMeanPosition()[0, :]-1024)*self.luci1Pxscale
@@ -128,21 +127,22 @@ class EstimateAstrometricError(object):
         dyInPixel = d[:, 1]
         return dxInPixel, dyInPixel
 
-    def plotDisplacements(self, dx, dy, n=300, fieldUnit='arcsec', color='r'):
+    def plotDisplacements(self, dx, dy, fieldUnit='arcsec', scale=1,
+                          color='r'):
         xMean = self.getStarsMeanPosition()[0, :]
         yMean = self.getStarsMeanPosition()[1, :]
         fig, ax = plt.subplots()
         if fieldUnit=='arcsec':
             xMeanNew = (xMean-1024)*self.luci1Pxscale
             yMeanNew = (yMean-1024)*self.luci1Pxscale
-            dxNew = dx*self.luci1Pxscale*1e03
-            dyNew = dy*self.luci1Pxscale*1e03
+            dxNew = dx*self.luci1Pxscale
+            dyNew = dy*self.luci1Pxscale
             ax.set_xlim(-120, 120)
             ax.set_ylim(-120, 120)
             ax.set_xlabel('arcsec', size=13)
             ax.set_ylabel('arcsec', size=13)
-            arrowLegendLenght = 10
-            legendLabel = '10 mas'
+            arrowLegendLenght = 0.01
+            legendLabel = '10 mas'  # 0.01 arcsec = 10 mas
             cbarLabel = '$\Delta$ [mas]'
         elif fieldUnit=='pixel':
             xMeanNew = (xMean-1024)
@@ -157,14 +157,17 @@ class EstimateAstrometricError(object):
             legendLabel = '0.1 pixel'
             cbarLabel = '$\Delta$ [px]'
         if color=='multi':
-            colors = np.hypot(dxNew, dyNew)
+            colors = np.hypot(dxNew, dyNew)*1e03
             # , width=w)
-            plt.quiver(xMeanNew, yMeanNew, dxNew, dyNew, colors)
+            plt.quiver(xMeanNew, yMeanNew, dxNew/np.sqrt(dxNew**2 + dyNew**2),
+                       dyNew/np.sqrt(dxNew**2 + dyNew**2), colors,
+                       angles='xy', scale_units='xy', scale=scale)
             cb = plt.colorbar()
             cb.set_label(cbarLabel, rotation=90, size=12)
             cb.ax.tick_params(labelsize=11)
         else:
-            q = ax.quiver(xMeanNew, yMeanNew, dxNew, dyNew, color=color)
+            q = ax.quiver(xMeanNew, yMeanNew, dxNew, dyNew, color=color,
+                          angles='xy', scale_units='xy', scale=scale)
             ax.quiverkey(q, 0.4, 1.05, arrowLegendLenght, label=legendLabel,
                          labelpos='E', fontproperties={'size': 12})
         ax.tick_params(labelsize=12)
@@ -246,22 +249,27 @@ class EstimateDifferentialTiltJitter(EstimateAstrometricError):
         return np.array(astrometricError)
 
     def plotDTJError(self, unit='arcsec', leg='yes'):
+        # plt.figure()
+        cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
         ae = self.getDTJError()
         if unit=='arcsec':
             plt.plot(self.polCoord[0]*0.119, ae[:, 0]*0.119*1e03,
-                     '.', label="$\sigma_{\parallel}$")
+                     '.', color=cycle[0], label="$\sigma_{\parallel}$")
             plt.plot(self.polCoord[0]*0.119, ae[:, 1]*0.119*1e03,
-                     '.', label="$\sigma_{\perp}$")
+                     '.', color=cycle[1], label="$\sigma_{\perp}$")
             plt.xlabel('d$_{NGS}$ [arcsec]', size=12)
             plt.ylabel('$\sigma_{tilt\:jitter}$ [mas]', size=12)
         elif unit=='px':
             plt.plot(
-                self.polCoord[0], ae[:, 0], '.', label="$\sigma_{\parallel}$")
-            plt.plot(self.polCoord[0], ae[:, 1], '.', label="$\sigma_{\perp}$")
+                self.polCoord[0], ae[:, 0],
+                '.', color=cycle[0], label="$\sigma_{\parallel}$")
+            plt.plot(self.polCoord[0], ae[:, 1],
+                     '.', color=cycle[1], label="$\sigma_{\perp}$")
             plt.xlabel('d$_{NGS}$ [px]', size=12)
             plt.ylabel('$\sigma_{tilt\:jitter}$ [px]', size=12)
         if leg == 'yes':
             plt.legend()
         plt.xticks(size=11)
         plt.yticks(size=11)
-#        plt.ylim(0, 39)
+        plt.xlim(0, 240)
+        plt.ylim(0, 39)

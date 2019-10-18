@@ -5,7 +5,7 @@ Created on 02 mar 2019
 '''
 
 import numpy as np
-from tesi import astrometricError_estimator
+from tesi import astrometric_error_estimator
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import plot
 
@@ -26,7 +26,7 @@ class estimateDifferentialTJ():
         self.starsTabs = starsTabs
         self.NGSCoordinates = NGSCoordinates
         self._maxShift = n
-        self.est = astrometricError_estimator.EstimateAstrometricError(
+        self.est = astrometric_error_estimator.EstimateAstrometricError(
             starsTabs)
         self.est.createCubeOfStarsInfo()
         self.starsX = self.est.getStarsPositionX()

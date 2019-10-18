@@ -12,6 +12,7 @@ from photutils.detection.findstars import IRAFStarFinder
 from astropy.nddata.utils import Cutout2D
 from tesi import ePSF_builder
 from tesi import match_astropy_tables
+from tesi import astrometric_error_estimator
 
 
 def showNorm(imaOrCcd, **kwargs):
@@ -193,6 +194,35 @@ def matchListOfStarsTabs(tabsList, maxShift=2):
         tab1, _ = matchTab.match2Tables(tab, refTab)
         matchingTabs.append(tab1)
     return matchingTabs
+
+
+def plotAstrometricErrorOnLuciField(starsTabs, area=40, pathStr=None):
+    ae = astrometric_error_estimator.EstimateAstrometricError(starsTabs)
+    ae.plotAstroErrorOntheField(area=area)
+    if pathStr is not None:
+        plt.savefig(pathStr)
+
+
+def plotStarsShiftFromMeanPosition(starsTabs, color, scale=0.002,
+                                   pathStr=None):
+    ae = astrometric_error_estimator.EstimateAstrometricError(starsTabs)
+
+    for i in range(len(starsTabs)):
+        dx, dy = ae.getDisplacementsFromMeanPositions(i)
+        ae.plotDisplacements(dx, dy, color=color, scale=scale)
+        if pathStr is not None:
+            plt.savefig(pathStr + '%d' %(i+1))
+            # plt.close()
+
+
+def plotDifferentialTiltJitterError(starsTabs, NGSCoords, n,
+                                    leg='yes', pathStr=None):
+    ae = astrometric_error_estimator.EstimateDifferentialTiltJitter(starsTabs,
+                                                                    NGSCoords,
+                                                                    n=n)
+    ae.plotDTJError(leg=leg)
+    if pathStr is not None:
+        plt.savefig(pathStr)
 
 
 class IRAFStarFinderExcludingMaskedPixel(IRAFStarFinder):

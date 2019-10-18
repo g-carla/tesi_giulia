@@ -6,7 +6,7 @@ Created on 14 feb 2019
 import numpy as np
 from tesi import image_creator, ePSF_builder, image_fitter
 from cmath import pi
-from astropy.stats.funcs import gaussian_sigma_to_fwhm, gaussian_fwhm_to_sigma
+from astropy.stats.funcs import gaussian_fwhm_to_sigma
 
 
 class testFitAccuracy():
