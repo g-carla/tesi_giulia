@@ -19,7 +19,7 @@ class epsfBuilder():
     Build the "effective Point Spread Function" (see Anderson & King, 2000)
     of the image using a set of sources whose selection depends on the
     IRAFStarFinder parameters choosen by the user.
-    The ePSF is built using photutils class "EPSFBuilder"
+    The ePSF is built using photutils class "EPSFBuilder."
     '''
 
     def __init__(self,
