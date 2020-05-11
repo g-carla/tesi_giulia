@@ -6,6 +6,7 @@ Created on 12 feb 2019
 
 from tesi import sandbox
 from astropy.table.table import Table
+from photutils.detection.findstars import IRAFStarFinder
 from photutils.psf import extract_stars
 from photutils.psf.epsf_stars import EPSFStars
 from astropy.nddata.nddata import NDData
@@ -18,7 +19,7 @@ class epsfBuilder():
     '''
     Build the "effective Point Spread Function" (see Anderson & King, 2000)
     of the image using a set of sources whose selection depends on the
-    IRAFStarFinder parameters choosen by the user.
+    IRAFStarFinder parameters chosen by the user.
     The ePSF is built using photutils class "EPSFBuilder."
     '''
 
@@ -32,7 +33,7 @@ class epsfBuilder():
                  roundlo=-1.0,
                  roundhi=1.0,
                  peakmax=5e04,
-                 size=50):
+                 size=20):
         self._image = image
         self._threshold = threshold
         self._fwhm = fwhmInPix
@@ -89,7 +90,7 @@ class epsfBuilder():
         return self._fittedStars
 
     def _findStars(self):
-        self._finder = sandbox.IRAFStarFinderExcludingMaskedPixel(
+        self._finder = IRAFStarFinder(
             threshold=self._threshold,
             fwhm=self._fwhm,
             minsep_fwhm=self._minSep,
@@ -98,7 +99,8 @@ class epsfBuilder():
             roundlo=self._roundlo,
             roundhi=self._roundhi,
             peakmax=self._peakmax)
-        self._selectedStars = self._finder.find_stars(self._image)
+        self._selectedStars = self._finder.find_stars(self._image,
+                                                      mask=self._image.mask)
 
     def _extractStars(self):
         self._findStars()
@@ -115,11 +117,11 @@ class epsfBuilder():
         for i in range(len(self._starsCut)):
             sandbox.showNorm(self._starsCut[i].data)
             print('Do you want to keep the star? (y/n)')
-            answer=input()
-            if answer=='y':
+            answer = input()
+            if answer == 'y':
                 self._goodStars.append(self._starsCut[i])
             else:
                 print('Star is not good')
             plt.close()
         self._ePSFstars = EPSFStars(self._goodStars)
-        print('N good stars: %d' %len(self._ePSFstars))
+        print('N good stars: %d' % len(self._ePSFstars))
