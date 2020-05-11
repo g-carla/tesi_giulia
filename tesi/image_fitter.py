@@ -50,7 +50,7 @@ class OneStarFitter(object):
         if len(self.init_guessTable) == 0:
             raise Exception("No star found - (add info please)")
         elif len(self.init_guessTable) > 1:
-            self.init_guessTable= self.init_guessTable[0]
+            self.init_guessTable = self.init_guessTable[0]
 
     def gaussianFit(self, image):
         n = gaussian_fwhm_to_sigma
@@ -58,8 +58,8 @@ class OneStarFitter(object):
         fit_model = models.Gaussian2D(x_mean=self.init_guessTable['xcentroid'],
                                       y_mean=self.init_guessTable['ycentroid'],
                                       amplitude=self.init_guessTable['peak'],
-                                      x_stddev=self.init_guessTable['fwhm']*n,
-                                      y_stddev=self.init_guessTable['fwhm']*n
+                                      x_stddev=self.init_guessTable['fwhm'] * n,
+                                      y_stddev=self.init_guessTable['fwhm'] * n
                                       #,theta=init_guessTable['pa']
                                       )
         self._fit = self._fitter(fit_model, self._x, self._y, image)
@@ -93,8 +93,9 @@ class OneStarFitter(object):
 class StarsFitter(OneStarFitter):
 
     def __init__(self, image, thresholdInPhot, fwhm, min_separation,
-                 sharplo, sharphi, roundlo, roundhi, fitshape,
-                 apertureRadius, peakmax=None, fitter=LevMarLSQFitter(),
+                 sharplo=0.2, sharphi=1., roundlo=-1., roundhi=1.,
+                 fitshape=(11, 11), apertureRadius=10, peakmax=5e4,
+                 fitter=LevMarLSQFitter(),
                  bkgEstimator=MMMBackground(),
                  bkgRms=MADStdBackgroundRMS()):
 
@@ -116,18 +117,20 @@ class StarsFitter(OneStarFitter):
 
     def fitStars(self, psfModel, niters=0):
         self._setPSFModel(model=psfModel)
-        if niters==0:
+        if niters == 0:
             self._doBasicPSFPhotometry()
-        elif niters>0:
+        elif niters > 0:
             self._doIterativelyPSFPhotometry(niters=niters)
 
     def getFitTable(self):
         return self._starsTab
 
-    def showFittedStars(self, aperture_radius=7):
+    def showFittedStars(self, perc_interval=95, aperture_radius=7):
+        from astropy.visualization import PercentileInterval
         positions = (self._starsTab['x_fit'], self._starsTab['y_fit'])
         apertures = CircularAperture(positions, r=aperture_radius)
-        sandbox.showNorm(self._image)
+        sandbox.showNorm(self._image,
+                         interval=PercentileInterval(perc_interval))
         apertures.plot()
 
     def getImageOfResiduals(self):
@@ -137,7 +140,7 @@ class StarsFitter(OneStarFitter):
         self._image = image
 
     def _setStarsFinder(self):
-        self._iraffinder = sandbox.IRAFStarFinder(
+        self._iraffinder = IRAFStarFinder(
             threshold=self._computeThreshold(),
             fwhm=self._fwhm,
             minsep_fwhm=self._minSep,
@@ -150,12 +153,12 @@ class StarsFitter(OneStarFitter):
 
     def _computeThreshold(self):
         if self._threshold is None:
-            return 3.5*self._bkgrms(self._image)
+            return 3.5 * self._bkgrms(self._image)
         else:
             return self._threshold
 
     def _setPSFModel(self, model):
-        if model=='gaussian':
+        if model == 'gaussian':
             self._setGaussianModel()
             self._gaussianModel = Gaussian2D(amplitude=self._amplitude,
                                              x_stddev=self._sx,
@@ -163,20 +166,20 @@ class StarsFitter(OneStarFitter):
                                              x_mean=self._xMean,
                                              y_mean=self._yMean,
                                              theta=self._theta)
-            self._gaussianModel.fluxname= 'amplitude'
-            self._gaussianModel.xname= 'x_mean'
-            self._gaussianModel.yname= 'y_mean'
+            self._gaussianModel.fluxname = 'amplitude'
+            self._gaussianModel.xname = 'x_mean'
+            self._gaussianModel.yname = 'y_mean'
             self._psfModel = self._gaussianModel
-        elif model=='moffat':
+        elif model == 'moffat':
             self._setMoffatModel()
             self._moffatModel = Moffat2D(amplitude=self._amplitude,
                                          x_0=self._x0,
                                          y_0=self._y0,
                                          gamma=self._gamma,
                                          alpha=self._alpha)
-            self._moffatModel.fluxname= 'amplitude'
+            self._moffatModel.fluxname = 'amplitude'
             self._psfModel = self._moffatModel
-        elif model=='integrated gaussian':
+        elif model == 'integrated gaussian':
             self._setIntGaussianModel()
             self._psfModel = IntegratedGaussianPRF(sigma=self._sigma,
                                                    flux=self._flux,
@@ -233,6 +236,6 @@ class StarsFitter(OneStarFitter):
         self._starsTab = self._iteratPhotom(self._image)
 
     def _setGroupMaker(self):
-        self._critSeparation = 2*self._fwhm
+        self._critSeparation = 2 * self._fwhm
         self._groupmaker = DAOGroup(self._critSeparation)
         return self._groupmaker
