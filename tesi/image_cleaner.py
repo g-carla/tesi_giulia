@@ -134,7 +134,7 @@ class ImageCleaner():
         return self.mask
 
     def _computeScienceImage(self):
-        print('MASTER SCIENCE: \n')
+        print('\n MASTER SCIENCE: \n')
         #        self.sciTrim = self._overscanAndtrim(self.science)
         # TODO: use ccd_process?
         if type(self._science) == list:
@@ -144,17 +144,19 @@ class ImageCleaner():
                 flatCorrection = self._correctForFlat(darkCorrection)
                 skyCorrection = self._subtractSky(flatCorrection)
                 scisCorrected.append(skyCorrection)
-
+            print('Sigma clipping...')
             sciCombiner = Combiner(scisCorrected)
             sciCombiner.sigma_clipping(low_thresh=3., high_thresh=3.,
                                        func=np.ma.median, dev_func=np.ma.std)
+            print('Median combine...')
             medianSci = sciCombiner.median_combine()
             mask = self.getBadPixelMask() + medianSci.mask
+            print('Getting master science frame...')
             self.masterSci = CCDData(
                 medianSci,
                 mask=mask,
                 unit='adu')
-            print('Writing the header')
+            print('Writing the header...')
             self.masterSci.header = self._science[0].meta
             # TODO: risky header?
 #             self.masterSci.header['FRAMETYP'] = \
@@ -170,8 +172,9 @@ class ImageCleaner():
         else:
             sci_dark = self._subtractDark(self._science)
             sciFlat = self._correctForFlat(sci_dark)
+            print('Getting master science frame...')
             self.masterSci = self._subtractSky(sciFlat)
-            print('Writing the header')
+            print('Writing the header...')
             self.masterSci.header = self._science.header
 
         if self._unit == 'electron':
@@ -179,19 +182,22 @@ class ImageCleaner():
             self.masterSci.header['UNIT'] = 'electrons'
 
     def _computeSkyImage(self):
-        print('MASTER SKY: \n')
+        print('\n MASTER SKY: \n')
 #        self.skyTrim = self._overscanAndtrim(self.skies)
         skiesCorrected = []
         for sky in self._skies:
             skyDark = self._subtractDark(sky)
             skyFlat = self._correctForFlat(skyDark)
             skiesCorrected.append(skyFlat)
+        print('Sigma clipping...')
         skyCombiner = Combiner(skiesCorrected)
         skyCombiner.sigma_clipping(low_thresh=3., high_thresh=3.,
                                    func=np.ma.median, dev_func=np.ma.std)
+        print('Median combine..')
         medianSky = skyCombiner.median_combine()
 
         mask = self.getBadPixelMask() + medianSky.mask
+        print('Getting master sky frame...')
         self.masterSky = CCDData(medianSky, mask=mask, unit='adu')
         self.masterSky.header = skiesCorrected[0].meta
         # TODO: risky header?
@@ -200,7 +206,7 @@ class ImageCleaner():
 #         self.masterSky = self._skyCombiner.median_combine()
 
     def _computeFlatImage(self):
-        print('MASTER FLAT: \n')
+        print('\n MASTER FLAT: \n')
 #       self.flatsTrim = self._overscanAndtrim(self.flats)
         print('Dark subtraction...')
         flatsDarkSubtracted = []
@@ -215,6 +221,7 @@ class ImageCleaner():
         print('Median combine...')
         medianFlat = flatCombiner.median_combine()
         mask = self.getBadPixelMask() + medianFlat.mask
+        print('Getting master flat frame...')
         self.masterFlat = CCDData(medianFlat, mask=mask, unit='adu')
 
         print('Writing the master flat\'s header...')
@@ -228,7 +235,7 @@ class ImageCleaner():
         self.mask = darkClipped.mask
 
     def _computeDarkImage(self):
-        print('MASTER DARK: \n')
+        print('\n MASTER DARK: \n')
 #        self.darksTrim = self._overscanAndtrim(self.darks)
 
         print('Sigma clipping...')
