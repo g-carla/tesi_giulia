@@ -5,7 +5,7 @@ Created on 08 feb 2019
 '''
 import numpy as np
 from skimage.transform._warps import warp
-from tesi import star_finder
+from skimage.transform import ProjectiveTransform
 
 
 class ImageAligner():
@@ -57,7 +57,7 @@ class ImageAligner():
         return np.dot(np.linalg.pinv(self.transfMat), self._Matr1)[0:2]
 
     def applyTransformationOnIma(self, imaTab2):
-        alignedIma = warp(imaTab2, self.transfMat,
+        alignedIma = warp(imaTab2, ProjectiveTransform(matrix=self.transfMat),
                           output_shape=imaTab2.shape,
                           order=3, mode='constant',
                           cval=np.median(imaTab2.data))
