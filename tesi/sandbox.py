@@ -7,64 +7,14 @@ Created on 27 set 2018
 import numpy as np
 import pickle
 import matplotlib.pyplot as plt
-from tesi import image_filter, image_cleaner, image_fitter
-from photutils.detection.findstars import IRAFStarFinder
+from tesi import image_filter, image_cleaner, image_fitter, plots
+from photutils.detection.findstars import IRAFStarFinder, DAOStarFinder
 from astropy.nddata.utils import Cutout2D
 from tesi import ePSF_builder
 from tesi import match_astropy_tables
 from tesi import astrometric_error_estimator
-
-
-def showNorm(imaOrCcd, **kwargs):
-    from astropy.visualization import imshow_norm, SqrtStretch
-    from astropy.visualization.mpl_normalize import PercentileInterval
-    from astropy.nddata import CCDData
-
-    plt.clf()
-    fig= plt.gcf()
-    if isinstance(imaOrCcd, CCDData):
-        arr= imaOrCcd.data
-        wcs= imaOrCcd.wcs
-        if wcs is None:
-            ax= plt.subplot()
-        else:
-            ax= plt.subplot(projection=wcs)
-            ax.coords.grid(True, color='white', ls='solid')
-    else:
-        arr= imaOrCcd
-        ax= plt.subplot()
-    if 'interval' not in kwargs:
-        kwargs['interval']= PercentileInterval(99.7)
-    if 'stretch' not in kwargs:
-        kwargs['stretch']= SqrtStretch()
-    if 'origin' not in kwargs:
-        kwargs['origin']= 'lower'
-
-    im, _= imshow_norm(arr, ax=ax, **kwargs)
-
-    cb = fig.colorbar(im)
-    cb.ax.tick_params(labelsize=11)
-
-
-def plot3D(xShape, yShape, data, cbarMin=None, cbarMax=None, **kwargs):
-    #     from matplotlib.ticker import LinearLocator, FormatStrFormatter
-    #    from mpl_toolkits.mplot3d import Axes3D
-
-    fig = plt.figure()
-    ax = fig.gca(projection='3d')
-
-    y, x = np.mgrid[0:yShape, 0:xShape]
-    surf = ax.plot_surface(X=x, Y=y, Z=data, cmap='viridis', **kwargs)
-
-#    # Customize the z axis.
-#     ax.set_zlim(-1.01, 1.01)
-#     ax.zaxis.set_major_locator(LinearLocator(10))
-#     ax.zaxis.set_major_formatter(FormatStrFormatter('%.02f'))
-
-#    # Add a color bar which maps values to colors.
-    fig.colorbar(surf, shrink=0.5, aspect=5)
-    if (cbarMin and cbarMax) is not None:
-        surf.set_clim(cbarMin, cbarMax)
+from photutils.centroids.core import centroid_2dg
+from photutils.detection.core import find_peaks
 
 
 def saveObjectListToFile(objList, filename):
@@ -74,18 +24,18 @@ def saveObjectListToFile(objList, filename):
 
 def restoreObjectListFromFile(filename):
     with open(filename, 'rb') as handle:
-        objList= pickle.load(handle)
+        objList = pickle.load(handle)
     return objList
 
 
-def getDarksForReduction():
-    imFil = image_filter.ImageFilter('/home/gcarla/tera1/201610/data/20161019')
+def getDarksForReduction(dir_path='/home/gcarla/tera1/201610/data/20161019'):
+    imFil = image_filter.ImageFilter(dir_path)
     darkImas, darkNames = imFil.getLists('DARK', 3.0)
     return darkImas, darkNames
 
 
-def getFlatsForReduction():
-    imFil = image_filter.ImageFilter('/home/gcarla/tera1/201610/data/20161019')
+def getFlatsForReduction(dir_path='/home/gcarla/tera1/201610/data/20161019'):
+    imFil = image_filter.ImageFilter(dir_path)
     flatImasJ, flatNamesJ = imFil.getLists('FLAT', 3.0, FILTER='J')
     flatImasH, flatNamesH = imFil.getLists('FLATFIELD', 3.0, FILTER='H')
     flatImasK, flatNamesK = imFil.getLists('FLATFIELD', 3.0, FILTER='Ks')
@@ -96,8 +46,8 @@ def getFlatsForReduction():
     return flatImasJ, flatNamesJ, flatImasH, flatNamesH, flatImasK, flatNamesK
 
 
-def getSkiesForReduction():
-    imFil = image_filter.ImageFilter('/home/gcarla/tera1/201610/data/20161019')
+def getSkiesForReduction(dir_path='/home/gcarla/tera1/201610/data/20161019'):
+    imFil = image_filter.ImageFilter(dir_path)
     skyImasJ, skyNamesJ = imFil.getLists('SKY', 3.0, FILTER='J',
                                          OBJECT='NGC2419')
     skyImasH, skyNamesH = imFil.getLists('SKY', 3.0, FILTER='H',
@@ -109,14 +59,14 @@ def getSkiesForReduction():
     return skyImasJ, skyNamesJ, skyImasH, skyNamesH, skyImasK, skyNamesK
 
 
-def getScisForReduction():
+def getScisForReduction(dir_path='/home/gcarla/tera1/201610/data/20161019'):
     '''
     ATTENTION: all dithers in sciLists. For reduction: check the log file
     and split sciImas and sciNames in N lists (N = number of dithers).
     Example: J_imas_dither1 = sciImasJ[0:9]
     '''
 
-    imFil = image_filter.ImageFilter('/home/gcarla/tera1/201610/data/20161019')
+    imFil = image_filter.ImageFilter(dir_path)
     sciImasJ, sciNamesJ = imFil.getLists('SCIENCE', 3.0, FILTER='J',
                                          OBJECT='NGC2419')
     sciImasH, sciNamesH = imFil.getLists('SCIENCE', 3.0, FILTER='H',
@@ -128,6 +78,85 @@ def getScisForReduction():
     del sciNamesH[56:]
     ##
     return sciImasJ, sciNamesJ, sciImasH, sciNamesH, sciImasK, sciNamesK
+
+
+def getNGC2419JDithers(sciJImas, sciJFilenames):
+    ima_dith1 = sciJImas[:9]
+    ima_dith2 = sciJImas[9:18]
+    ima_dith3 = sciJImas[18:27]
+    ima_dith4 = sciJImas[27:36]
+    ima_dith5 = sciJImas[36:45]
+    ima_dith6 = sciJImas[45:54]
+    ima_dith7 = sciJImas[54:63]
+    ima_dith8 = sciJImas[63:72]
+
+    names_dith1 = sciJFilenames[:9]
+    names_dith2 = sciJFilenames[9:18]
+    names_dith3 = sciJFilenames[18:27]
+    names_dith4 = sciJFilenames[27:36]
+    names_dith5 = sciJFilenames[36:45]
+    names_dith6 = sciJFilenames[45:54]
+    names_dith7 = sciJFilenames[54:63]
+    names_dith8 = sciJFilenames[63:72]
+
+    return ima_dith1, ima_dith2, ima_dith3, ima_dith4, ima_dith5, ima_dith6, \
+        ima_dith7, ima_dith8, \
+        names_dith1, names_dith2, names_dith3, names_dith4, names_dith5, \
+        names_dith6, names_dith7, names_dith8
+
+
+def getNGC2419HDithers(sciHImas, sciHFilenames):
+    ima_dith1 = sciHImas[:14]
+    ima_dith2 = sciHImas[14:28]
+    ima_dith3 = sciHImas[28:42]
+    ima_dith4 = sciHImas[42:56]
+
+    names_dith1 = sciHFilenames[:14]
+    names_dith2 = sciHFilenames[14:28]
+    names_dith3 = sciHFilenames[28:42]
+    names_dith4 = sciHFilenames[42:56]
+
+    return ima_dith1, ima_dith2, ima_dith3, ima_dith4, \
+        names_dith1, names_dith2, names_dith3, names_dith4
+
+
+def getNGC2419KDithers(sciKImas, sciKFilenames):
+    ima_dith1 = sciKImas[:11]
+    ima_dith2 = sciKImas[11:22]
+    ima_dith3 = sciKImas[22:33]
+    ima_dith4 = sciKImas[33:44]
+    ima_dith5 = sciKImas[44:55]
+    ima_dith6 = sciKImas[55:66]
+    ima_dith7 = sciKImas[66:77]
+    ima_dith8 = sciKImas[77:88]
+    ima_dith9 = sciKImas[88:99]
+    ima_dith10 = sciKImas[99:110]
+    ima_dith11 = sciKImas[121:132]
+    ima_dith12 = sciKImas[132:143]
+    ima_dith13 = sciKImas[143:154]
+
+    names_dith1 = sciKFilenames[:11]
+    names_dith2 = sciKFilenames[11:22]
+    names_dith3 = sciKFilenames[22:33]
+    names_dith4 = sciKFilenames[33:44]
+    names_dith5 = sciKFilenames[44:55]
+    names_dith6 = sciKFilenames[55:66]
+    names_dith7 = sciKFilenames[66:77]
+    names_dith8 = sciKFilenames[77:88]
+    names_dith9 = sciKFilenames[88:99]
+    names_dith10 = sciKFilenames[99:110]
+    names_dith11 = sciKFilenames[121:132]
+    names_dith12 = sciKFilenames[132:143]
+    names_dith13 = sciKFilenames[143:154]
+
+# Ultimo dither sfuocato...
+
+    return ima_dith1, ima_dith2, ima_dith3, ima_dith4, ima_dith5, ima_dith6, \
+        ima_dith7, ima_dith8, ima_dith9, ima_dith10, ima_dith11, ima_dith12, \
+        ima_dith13, \
+        names_dith1, names_dith2, names_dith3, names_dith4, names_dith5, \
+        names_dith6, names_dith7, names_dith8, names_dith9, names_dith10, \
+        names_dith11, names_dith12, names_dith13
 
 
 def reduceListOfNGC2419Imas(imasRaw, darks, flats, skies, masterDark=None,
@@ -196,35 +225,6 @@ def matchListOfStarsTabs(tabsList, maxShift=2):
     return matchingTabs
 
 
-def plotAstrometricErrorOnLuciField(starsTabs, area=40, pathStr=None):
-    ae = astrometric_error_estimator.EstimateAstrometricError(starsTabs)
-    ae.plotAstroErrorOntheField(area=area)
-    if pathStr is not None:
-        plt.savefig(pathStr)
-
-
-def plotStarsShiftFromMeanPosition(starsTabs, color, scale=0.002,
-                                   pathStr=None):
-    ae = astrometric_error_estimator.EstimateAstrometricError(starsTabs)
-
-    for i in range(len(starsTabs)):
-        dx, dy = ae.getDisplacementsFromMeanPositions(i)
-        ae.plotDisplacements(dx, dy, color=color, scale=scale)
-        if pathStr is not None:
-            plt.savefig(pathStr + '%d' %(i+1))
-            # plt.close()
-
-
-def plotDifferentialTiltJitterError(starsTabs, NGSCoords, n,
-                                    leg='yes', pathStr=None):
-    ae = astrometric_error_estimator.EstimateDifferentialTiltJitter(starsTabs,
-                                                                    NGSCoords,
-                                                                    n=n)
-    ae.plotDTJError(leg=leg)
-    if pathStr is not None:
-        plt.savefig(pathStr)
-
-
 class IRAFStarFinderExcludingMaskedPixel(IRAFStarFinder):
 
     def __init__(self, *args, **kwargs):
@@ -236,20 +236,115 @@ class IRAFStarFinderExcludingMaskedPixel(IRAFStarFinder):
         return cut.data
 
     def find_stars(self, data, mask=None):
-        self.table= super(IRAFStarFinderExcludingMaskedPixel, self).find_stars(
-            data, mask)
+        self.table = super(IRAFStarFinderExcludingMaskedPixel,
+                           self).find_stars(data, mask)
 
+#     if mask is not None:
+#     else: return self.table
         if data.mask.any():
-            self.tableCopy= self.table.copy()
+            self.tableCopy = self.table.copy()
             self.tableCopy.remove_rows(range(len(self.tableCopy)))
 
-            for i in range(len(self.table)-1):
+            for i in range(len(self.table) - 1):
                 imaCut = self._cutDataOnABoxAroundStar(
                     data,
                     self.table[i]['xcentroid'],
                     self.table[i]['ycentroid'])
-                if imaCut.mask.any()==False:
+                if imaCut.mask.any() is False:
                     self.tableCopy.add_row(self.table[i])
             return self.tableCopy
         else:
             return self.table
+
+
+class DAOStarFinderExcludingMaskedPixel(DAOStarFinder):
+
+    def __init__(self, *args, **kwargs):
+        super(DAOStarFinderExcludingMaskedPixel, self).__init__(
+            *args, **kwargs)
+
+    def _cutDataOnABoxAroundStar(self, ima, xc, yc):
+        cut = Cutout2D(ima, (xc, yc), 21)
+        return cut.data
+
+    def find_stars(self, data, mask=None):
+        self.table = super(DAOStarFinderExcludingMaskedPixel, self).find_stars(
+            data, mask)
+
+#     if mask is not None:
+#     else: return self.table
+        if data.mask.any():
+            self.tableCopy = self.table.copy()
+            self.tableCopy.remove_rows(range(len(self.tableCopy)))
+
+            for i in range(len(self.table) - 1):
+                imaCut = self._cutDataOnABoxAroundStar(
+                    data,
+                    self.table[i]['xcentroid'],
+                    self.table[i]['ycentroid'])
+                if imaCut.mask.any() is False:
+                    self.tableCopy.add_row(self.table[i])
+            return self.tableCopy
+        else:
+            return self.table
+
+
+def convertNanPixelsInMedianOfImage(ima, nanIndices):
+    yy = nanIndices[:, 0]
+    xx = nanIndices[:, 1]
+    median = np.median(ima)
+    ima[yy, xx] = median
+    return ima
+
+
+def wcsTest(dr):
+    """
+    HIERARCH LBTO LUCI WCS CTYPE1 = 'RA---TAN' / the coordinate type and projection 
+    HIERARCH LBTO LUCI WCS CTYPE2 = 'DEC--TAN' / the coordinate type and projection 
+    HIERARCH LBTO LUCI WCS CRPIX1 = 1024. / the pixel coordinates of the reference p
+    HIERARCH LBTO LUCI WCS CRPIX2 = 1024. / the pixel coordinates of the reference p
+    HIERARCH LBTO LUCI WCS CRVAL1 = 205.7395 / the WCS coordinates on the reference 
+    HIERARCH LBTO LUCI WCS CRVAL2 = 32. / the WCS coordinates on the reference point
+    HIERARCH LBTO LUCI WCS CD1_1 = -3.3E-05 / the rotation matrix for scaling and ro
+    HIERARCH LBTO LUCI WCS CD1_2 = 0. / the rotation matrix for scaling and rotation
+    HIERARCH LBTO LUCI WCS CD2_1 = 0. / the rotation matrix for scaling and rotation
+    HIERARCH LBTO LUCI WCS CD2_2 = 3.3E-05 / the rotation matrix for scaling and rot
+    TELRA   = '07 38 9.002'        / Telescope Right Accention
+    TELDEC  = '+38 53 11.504'      / Telescope Declination
+    OBJRA   = '07 38 9.002'        / Target Right Ascension from preset
+    OBJDEC  = '+38 53 11.504'      / Target Declination from preset
+    OBJRADEC= 'FK5     '           / Target Coordinate System
+    OBJEQUIN= 'J2000   '           / Target Coordinate System Equinox
+    OBJPMRA =                   0. / Target RA proper motion [mas per yr]
+    OBJPMDEC=                   0. / Target DEC proper motion [mas per yr]
+    OBJEPOCH=                2000. / Target Epoch
+    GUIRA   = '07 38 19.187'       / Guide Star RA
+    GUIDEC  = '+38 55 15.648'      / Guide Star DEC
+    AONAME  = 'N1288-0180843'      / AO Star Name
+    AORA    = '07 38 15.702'       / AO Star RA
+    AODEC   = '+38 53 33.108'      / AO Star DEC
+    """
+    import astropy.units as u
+    from astropy import wcs
+    from astropy.coordinates import SkyCoord, FK5
+
+    sciences = dr._scienceIma
+    ccd0 = sciences[0]
+    hdr0 = ccd0.header
+    ccd0wcs = wcs.WCS(hdr0)
+    pxs = np.array([[0, 0], [1024, 1024], [512, 1024]], np.float)
+    ccd0wcs.all_pix2world(pxs, 1)
+
+    px = np.arange(ccd0.shape[1])
+    py = np.arange(ccd0.shape[0])
+    wx, wy = ccd0wcs.all_pix2world(px, py, 1)
+
+    if hdr0['OBJRADEC'] == 'FK5':
+        frameType = FK5()
+    c = SkyCoord(ccd0.header['OBJRA'], ccd0.header['OBJDEC'],
+                 frame=frameType, unit=(u.hourangle, u.deg))
+
+    # AO guide star. Find it in image
+    aoStarCoordW = SkyCoord(ccd0.header['AORA'], ccd0.header['AODEC'],
+                            frame=frameType, unit=(u.hourangle, u.deg))
+    aoStarCoordPx = ccd0wcs.world_to_pixel(aoStarCoordW)

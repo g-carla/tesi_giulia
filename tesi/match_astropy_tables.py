@@ -36,34 +36,58 @@ class MatchTables():
             (World Coordinate Sysyem)
         '''
         pass
-        t1Out= t1.copy()
+        t1Out = t1.copy()
         t1Out.remove_rows(range(len(t1Out)))
-        t2Out= t2.copy()
+        t2Out = t2.copy()
         t2Out.remove_rows(range(len(t2Out)))
-        if coordType=='irafclass':
-            self.coord1= np.vstack([np.array(t1['xcentroid']),
-                                    np.array(t1['ycentroid'])]).T
-            self.coord2= np.vstack([np.array(t2['xcentroid']),
-                                    np.array(t2['ycentroid'])]).T
-        elif coordType=='photclass':
-            self.coord1= np.vstack([np.array(t1['x_fit']),
-                                    np.array(t1['y_fit'])]).T
-            self.coord2= np.vstack([np.array(t2['x_fit']),
-                                    np.array(t2['y_fit'])]).T
-        elif coordType=='wcs':
-            self.coord1= np.vstack([np.array(t1['ra']),
-                                    np.array(t1['dec'])]).T
-            self.coord2= np.vstack([np.array(t2['ra']),
-                                    np.array(t2['dec'])]).T
+        if coordType == 'irafclass':
+            self.coord1 = np.vstack([np.array(t1['xcentroid']),
+                                     np.array(t1['ycentroid'])]).T
+            self.coord2 = np.vstack([np.array(t2['xcentroid']),
+                                     np.array(t2['ycentroid'])]).T
+        elif coordType == 'photclass':
+            self.coord1 = np.vstack([np.array(t1['x_fit']),
+                                     np.array(t1['y_fit'])]).T
+            self.coord2 = np.vstack([np.array(t2['x_fit']),
+                                     np.array(t2['y_fit'])]).T
+        elif coordType == 'wcs':
+            self.coord1 = np.vstack([np.array(t1['ra']),
+                                     np.array(t1['dec'])]).T
+            self.coord2 = np.vstack([np.array(t2['ra']),
+                                     np.array(t2['dec'])]).T
 
         for i in range(self.coord2.shape[0]):
-            closeToSource2= np.linalg.norm(self.coord1-self.coord2[i, :],
-                                           axis=1) < self.maxShift
+            closeToSource2 = np.linalg.norm(self.coord1 - self.coord2[i, :],
+                                            axis=1) < self.maxShift
             if np.count_nonzero(closeToSource2) > 1:
                 raise Exception('Found more than 1 matching source for '
                                 'source at %s' % self.coord2[i])
             elif np.count_nonzero(closeToSource2) == 1:
-                c1Idx= np.argwhere(closeToSource2)[0][0]
+                c1Idx = np.argwhere(closeToSource2)[0][0]
                 t2Out.add_row(t2[i])
                 t1Out.add_row(t1[c1Idx])
         return t1Out, t2Out
+
+    def matchListOfTables(self, tabsList):
+        refTab = self.match2Tables(tabsList[0], tabsList[1])[0]
+        for tab in tabsList[2:]:
+            #  print('Matching tab %g with reference tab' % tab)
+            _, refTab = self.match2Tables(tab, refTab)
+        matchingFitTabs = []
+        for tab in tabsList:
+            #  print('Matching tab %g with reference tab' %fitTab)
+            tab1, _ = self.match2Tables(tab, refTab)
+            matchingFitTabs.append(tab1)
+        return matchingFitTabs
+
+#
+# def matchStarsTablesListWithRefTab(tabsList, refTab, max_shift):
+#     match = match_astropy_tables.MatchTables(max_shift)
+#     #refTab = match.match2TablesPhotometry(tabsList[0], tabsList[1])[0]
+#     for fitTab in tabsList:
+#         _, refTab = match.match2TablesPhotometry(fitTab, refTab)
+#     matchingFitTabs = []
+#     for fitTab in tabsList:
+#         tab1, _ = match.match2TablesPhotometry(fitTab, refTab)
+#         matchingFitTabs.append(tab1)
+#     return matchingFitTabs

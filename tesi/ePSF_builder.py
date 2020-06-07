@@ -4,7 +4,7 @@ Created on 12 feb 2019
 @author: gcarla
 '''
 
-from tesi import sandbox
+from tesi import sandbox, plots
 from astropy.table.table import Table
 from photutils.detection.findstars import IRAFStarFinder
 from photutils.psf import extract_stars
@@ -115,7 +115,7 @@ class epsfBuilder():
         self._extractStars()
         self._goodStars = []
         for i in range(len(self._starsCut)):
-            sandbox.showNorm(self._starsCut[i].data)
+            plots.showNorm(self._starsCut[i].data)
             print('Do you want to keep the star? (y/n)')
             answer = input()
             if answer == 'y':
