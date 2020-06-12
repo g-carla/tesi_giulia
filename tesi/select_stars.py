@@ -33,8 +33,9 @@ class StarsSelector():
         self.goon = True
         self.circles = []
         plt.show()
+        self._start()
 
-    def start(self):
+    def _start(self):
         while self.goon:
             plt.pause(0.10)
 

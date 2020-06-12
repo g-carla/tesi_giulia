@@ -1,6 +1,4 @@
 '''
-Created on 17 mag 2020
-
 @author: giuliacarla
 '''
 

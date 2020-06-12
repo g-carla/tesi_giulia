@@ -6,15 +6,21 @@ Created on 27 set 2018
 
 import numpy as np
 import pickle
-import matplotlib.pyplot as plt
-from tesi import image_filter, image_cleaner, image_fitter, plots
+from tesi import image_filter, image_cleaner, image_fitter
 from photutils.detection.findstars import IRAFStarFinder, DAOStarFinder
 from astropy.nddata.utils import Cutout2D
 from tesi import ePSF_builder
 from tesi import match_astropy_tables
-from tesi import astrometric_error_estimator
-from photutils.centroids.core import centroid_2dg
-from photutils.detection.core import find_peaks
+
+
+def createRangeOfFileNames(radixName, fromIndex, toIndex):
+    '''
+    fileNames = createRangeOfFileNames('/Users/giuliacarla/Documents/INAF/'
+    'Lavoro/Progetti/ARGOS/20161019/images_reduced/NGC2419_J_dither_',
+    '1, 8)'
+    '''
+    return ['%s%d.pkl' % (radixName, idx) for idx in
+            np.arange(fromIndex, toIndex + 1)]
 
 
 def saveObjectListToFile(objList, filename):

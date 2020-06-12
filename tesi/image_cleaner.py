@@ -10,6 +10,7 @@ from astropy import units as u
 from ccdproc import CCDData, Combiner
 from astropy.modeling import models
 from astropy.stats import SigmaClip
+from ccdproc.core import trim_image
 
 
 class ImageCleaner():
@@ -133,6 +134,10 @@ class ImageCleaner():
             self.mask = self.masterDark.mask
         return self.mask
 
+    def _trimImage(self, image):
+        ima_trim = trim_image(image, image.header['DATASEC'])
+        return ima_trim
+
     def _computeScienceImage(self):
         print('\n MASTER SCIENCE: \n')
         #        self.sciTrim = self._overscanAndtrim(self.science)
@@ -143,6 +148,7 @@ class ImageCleaner():
                 darkCorrection = self._subtractDark(sci)
                 flatCorrection = self._correctForFlat(darkCorrection)
                 skyCorrection = self._subtractSky(flatCorrection)
+#                 sciFinal = self._trimImage(skyCorrection)
                 scisCorrected.append(skyCorrection)
             print('Sigma clipping...')
             sciCombiner = Combiner(scisCorrected)
